@@ -57,11 +57,11 @@
     - Environment variables for TARGET_ROLE and TARGET_ENV per stage
     NOTES: Completed 2026-02-12, implemented with Feature 1
 
-[ ] Feature 8: Examples and Validation
+[x] Feature 8: Examples and Validation
     - Create examples/minimal/, examples/complete/, examples/opentofu/
     - Verify terraform validate succeeds on all examples
     - Verify terraform fmt -check passes
-    NOTES:
+    NOTES: Started 2026-02-12, Completed 2026-02-12
 
 [ ] Feature 9: End-to-End Deployment Test
     - PREREQUISITE: Create cross-account deployment roles in DEV (914089393341) and PROD (264675080489)
