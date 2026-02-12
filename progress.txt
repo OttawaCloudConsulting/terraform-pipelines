@@ -90,12 +90,12 @@
     [x] 11.7 — Pin provider constraint to ~> 6.0 (module + 3 examples)
     NOTES: Started 2026-02-12, Completed 2026-02-12
 
-[ ] Feature 12: PR Review — Buildspec & Code Quality
+[x] Feature 12: PR Review — Buildspec & Code Quality
     Source: docs/working/pr-review/pr-review-response.md
-    [ ] 12.1 — Add set -euo pipefail to all buildspec shell blocks
-    [ ] 12.2 — Fix cross-variable validation (state_bucket -> precondition on data source)
-    [ ] 12.3 — Add project_name length (max 34) + consecutive hyphen validation
-    NOTES:
+    [x] 12.1 — Add set -euo pipefail to all buildspec shell blocks
+    [x] 12.2 — Fix cross-variable validation (state_bucket -> precondition on data source)
+    [x] 12.3 — Add project_name length (max 34) + consecutive hyphen validation
+    NOTES: Started 2026-02-12, Completed 2026-02-12
 
 [ ] Feature 13: PR Review — Repo Hygiene
     Source: docs/working/pr-review/pr-review-response.md

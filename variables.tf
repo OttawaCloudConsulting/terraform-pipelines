@@ -7,8 +7,13 @@ variable "project_name" {
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]*[a-z0-9]$", var.project_name))
-    error_message = "project_name must contain only lowercase letters, numbers, and hyphens, and must start and end with a letter or number."
+    condition     = can(regex("^[a-z][a-z0-9-]{1,32}[a-z0-9]$", var.project_name))
+    error_message = "project_name must be 3-34 characters, start with a lowercase letter, end with a letter or number, and contain only lowercase letters, numbers, and hyphens."
+  }
+
+  validation {
+    condition     = !can(regex("--", var.project_name))
+    error_message = "project_name must not contain consecutive hyphens (violates S3 naming rules)."
   }
 }
 
@@ -110,11 +115,6 @@ variable "state_bucket" {
   description = "Existing S3 bucket name for Terraform state. Required when create_state_bucket is false."
   type        = string
   default     = ""
-
-  validation {
-    condition     = var.state_bucket != "" || var.create_state_bucket
-    error_message = "state_bucket must be provided when create_state_bucket is false."
-  }
 }
 
 variable "state_key_prefix" {

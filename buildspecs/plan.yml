@@ -6,6 +6,7 @@ phases:
       - echo "=== Plan Stage ==="
       - echo "Installing ${IAC_RUNTIME} version ${IAC_VERSION}..."
       - |
+        set -euo pipefail
         if [ "${IAC_RUNTIME}" = "opentofu" ]; then
           if [ "${IAC_VERSION}" = "latest" ]; then
             curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method standalone
@@ -33,6 +34,7 @@ phases:
       # The actual env-specific state is managed by the deploy stages.
       - echo "Initializing Terraform with S3 backend..."
       - |
+        set -euo pipefail
         terraform init \
           -backend-config="bucket=${STATE_BUCKET}" \
           -backend-config="key=${STATE_KEY_PREFIX}/plan/terraform.tfstate" \
@@ -50,6 +52,7 @@ phases:
       - terraform show -json tfplan > tfplan.json
       - echo "Running checkov security scan..."
       - |
+        set -euo pipefail
         CHECKOV_ARGS="-f tfplan.json --framework terraform_plan --output junitxml --output-file checkov-report.xml --hard-fail-on CRITICAL,HIGH"
         if [ "${CHECKOV_SOFT_FAIL}" = "true" ]; then
           CHECKOV_ARGS="${CHECKOV_ARGS} --soft-fail"

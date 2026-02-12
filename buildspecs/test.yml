@@ -8,6 +8,7 @@ phases:
       # STS credentials persist across all commands.
       - 'echo "Assuming cross-account role: $TARGET_ROLE"'
       - |
+        set -euo pipefail
         CREDENTIALS=$(aws sts assume-role \
           --role-arn "${TARGET_ROLE}" \
           --role-session-name "codebuild-test-${TARGET_ENV}" \

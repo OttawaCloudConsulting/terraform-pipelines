@@ -86,6 +86,13 @@ resource "aws_s3_bucket_logging" "state" {
 data "aws_s3_bucket" "existing_state" {
   count  = var.create_state_bucket ? 0 : 1
   bucket = var.state_bucket
+
+  lifecycle {
+    precondition {
+      condition     = var.state_bucket != ""
+      error_message = "state_bucket must be provided when create_state_bucket is false."
+    }
+  }
 }
 
 # -----------------------------------------------------------------------------

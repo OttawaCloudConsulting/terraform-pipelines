@@ -1,5 +1,9 @@
 # Changelog
 
+## [Feature 12] — 2026-02-12
+
+Buildspec and code quality improvements. Added `set -euo pipefail` to all 7 multi-line shell blocks across 4 buildspecs. Moved cross-variable `state_bucket` validation from variable block to `precondition` on `data.aws_s3_bucket.existing_state`. Updated `project_name` validation to enforce 3-34 character length and reject consecutive hyphens.
+
 ## [Feature 11] — 2026-02-12
 
 PR review security hardening. Converted checkov from advisory-only (`|| true`) to a real security gate with `--hard-fail-on CRITICAL,HIGH` and `checkov_soft_fail` variable. Added inline `#checkov:skip` suppressions for 11 deferred checks (70 skipped instances) with documented rationale. Added `codebuild_image` validation (aws/codebuild/ prefix), SNS `aws:SourceAccount` condition, `prevent_destroy` on state bucket, `s3:GetBucketLocation` IAM permission. Pinned provider to `~> 6.0` (installed v6.32.0).

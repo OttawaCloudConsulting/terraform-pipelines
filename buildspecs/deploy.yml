@@ -6,6 +6,7 @@ phases:
       - echo "=== Deploy Stage (${TARGET_ENV}) ==="
       - echo "Installing ${IAC_RUNTIME} version ${IAC_VERSION}..."
       - |
+        set -euo pipefail
         if [ "${IAC_RUNTIME}" = "opentofu" ]; then
           if [ "${IAC_VERSION}" = "latest" ]; then
             curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method standalone
@@ -31,6 +32,7 @@ phases:
       # STS credentials persist across all commands.
       - 'echo "Assuming cross-account role: $TARGET_ROLE"'
       - |
+        set -euo pipefail
         CREDENTIALS=$(aws sts assume-role \
           --role-arn "${TARGET_ROLE}" \
           --role-session-name "codebuild-deploy-${TARGET_ENV}" \

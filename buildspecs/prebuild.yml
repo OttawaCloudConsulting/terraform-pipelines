@@ -9,6 +9,7 @@ phases:
   build:
     commands:
       - |
+        set -euo pipefail
         if [ -f "cicd/prebuild/main.sh" ]; then
           echo "Running developer pre-build script..."
           chmod +x cicd/prebuild/main.sh
