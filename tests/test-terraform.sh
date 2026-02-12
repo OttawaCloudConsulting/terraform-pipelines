@@ -34,27 +34,76 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Function to install tool on macOS
+# Detect operating system and package manager
+detect_os() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "macos"
+    elif [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        case "$ID" in
+            ubuntu|debian)
+                echo "debian"
+                ;;
+            rhel|centos|fedora)
+                echo "redhat"
+                ;;
+            *)
+                echo "linux"
+                ;;
+        esac
+    else
+        echo "unknown"
+    fi
+}
+
+# Function to install tool with OS detection
 install_tool() {
     local tool=$1
     local install_method=$2
+    local os=$(detect_os)
     
     print_warning "$tool not found. Installing..."
     
     case $install_method in
         brew)
-            if command_exists brew; then
-                brew install "$tool"
-            else
-                print_error "Homebrew not installed. Please install $tool manually."
-                return 1
-            fi
+            case $os in
+                macos)
+                    if command_exists brew; then
+                        brew install "$tool"
+                    else
+                        print_error "Homebrew not installed. Please install $tool manually."
+                        return 1
+                    fi
+                    ;;
+                debian)
+                    if command_exists apt-get; then
+                        sudo apt-get update && sudo apt-get install -y "$tool"
+                    else
+                        print_error "apt-get not available. Please install $tool manually."
+                        return 1
+                    fi
+                    ;;
+                redhat)
+                    if command_exists dnf; then
+                        sudo dnf install -y "$tool"
+                    elif command_exists yum; then
+                        sudo yum install -y "$tool"
+                    else
+                        print_error "dnf/yum not available. Please install $tool manually."
+                        return 1
+                    fi
+                    ;;
+                *)
+                    print_error "Unsupported OS. Please install $tool manually."
+                    return 1
+                    ;;
+            esac
             ;;
         pip)
             if command_exists pip3; then
-                pip3 install "$tool"
+                pip3 install --user "$tool"
             elif command_exists pip; then
-                pip install "$tool"
+                pip install --user "$tool"
             else
                 print_error "pip not installed. Please install $tool manually."
                 return 1
@@ -155,13 +204,8 @@ print_success "Terraform plan generated successfully"
 
 # Step 9: terraform apply
 print_step 9 "terraform apply - Deploying to dev account"
-echo -e "${YELLOW}WARNING: This will deploy resources to the developer-account${NC}"
-read -p "Do you want to proceed with deployment? (yes/no): " confirm
-
-if [[ $confirm == "yes" ]]; then
-    terraform apply tfplan -auto-approve
-    print_success "Deployment completed successfully"
-else
+terraform apply tfplan
+print_success "Deployment completed successfully"
     print_warning "Deployment cancelled by user"
     exit 0
 fi
