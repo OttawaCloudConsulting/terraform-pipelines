@@ -1,5 +1,9 @@
 # Changelog
 
+## [Feature 13] — 2026-02-12
+
+Repository hygiene. Updated `.gitignore` to exclude plan output files (`*.tfplan`, `tfplan.binary`, `tfplan.json`), provider lock files (`.terraform.lock.hcl`), and Claude Code local settings (`.claude/settings.local.json`).
+
 ## [Feature 12] — 2026-02-12
 
 Buildspec and code quality improvements. Added `set -euo pipefail` to all 7 multi-line shell blocks across 4 buildspecs. Moved cross-variable `state_bucket` validation from variable block to `precondition` on `data.aws_s3_bucket.existing_state`. Updated `project_name` validation to enforce 3-34 character length and reject consecutive hyphens.

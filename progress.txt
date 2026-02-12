@@ -97,7 +97,7 @@
     [x] 12.3 — Add project_name length (max 34) + consecutive hyphen validation
     NOTES: Started 2026-02-12, Completed 2026-02-12
 
-[ ] Feature 13: PR Review — Repo Hygiene
+[x] Feature 13: PR Review — Repo Hygiene
     Source: docs/working/pr-review/pr-review-response.md
-    [ ] 13.1 — Update .gitignore (tfplan, .terraform.lock.hcl, settings.local.json)
-    NOTES:
+    [x] 13.1 — Update .gitignore (tfplan, .terraform.lock.hcl, settings.local.json)
+    NOTES: Started 2026-02-12, Completed 2026-02-12
