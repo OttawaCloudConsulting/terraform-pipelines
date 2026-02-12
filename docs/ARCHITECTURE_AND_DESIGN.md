@@ -265,7 +265,7 @@ The following practices are implemented based on [AWS Prescriptive Guidance: Bes
 | **Standard repository structure** | Root module with `main.tf`, `variables.tf`, `outputs.tf`, `locals.tf`, `versions.tf` |
 | **Separate providers from resources** | `versions.tf` contains `terraform {}` and `required_providers` blocks only |
 | **Variables have types and descriptions** | All variables include `type`, `description`, and `default` (where optional) |
-| **Validation blocks** | `iac_runtime` validated to `["terraform", "opentofu"]`. Account IDs validated as 12-digit strings. ARNs validated with regex |
+| **Validation blocks** | `iac_runtime` validated to `["terraform", "opentofu"]`. Account IDs validated as 12-digit strings. ARNs validated with regex. `project_name` enforces 3-34 chars, starts with letter, no consecutive hyphens. `codebuild_image` requires `aws/codebuild/` prefix |
 | **Use locals for computed values** | `locals.tf` computes `state_bucket_name`, `codestar_connection_arn`, merged tags |
 | **Use attachment resources** | IAM policies attached via `aws_iam_role_policy` (inline) rather than embedded in role definitions |
 | **Default tags on all resources** | `local.all_tags` merges module-managed tags with consumer `var.tags`. Applied to all taggable resources |
@@ -331,6 +331,10 @@ terraform-pipelines/               # Module root
 │   ├── FEATURES_1-7.md
 │   ├── FEATURE_8.md
 │   ├── FEATURE_9.md
+│   ├── FEATURE_10.md
+│   ├── FEATURE_11.md
+│   ├── FEATURE_12.md
+│   ├── FEATURE_13.md
 │   └── working/                    # Cross-account role docs and policies
 │       ├── CROSS_ACCOUNT_ROLES.md
 │       ├── deployment-role-trust-policy.json

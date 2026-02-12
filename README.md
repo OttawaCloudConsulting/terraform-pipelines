@@ -80,7 +80,7 @@ See `examples/` for runnable configurations: `minimal/`, `complete/`, and `opent
 ## Prerequisites
 
 1. **Terraform >= 1.11** (required for native S3 state locking with `use_lockfile`)
-2. **AWS provider >= 5.0**
+2. **AWS provider ~> 6.0**
 3. **Deployment roles** must pre-exist in DEV and PROD target accounts
    - Must trust the CodeBuild service role from the Automation Account
    - See `docs/working/CROSS_ACCOUNT_ROLES.md` for trust policy templates
@@ -92,7 +92,7 @@ See `examples/` for runnable configurations: `minimal/`, `complete/`, and `opent
 
 | Name | Type | Description |
 |------|------|-------------|
-| `project_name` | `string` | Name of the Terraform project. Used in all resource names. |
+| `project_name` | `string` | Name of the Terraform project (3-34 chars, lowercase, no `--`). Used in all resource names. |
 | `github_repo` | `string` | GitHub repository in `org/repo` format. |
 | `dev_account_id` | `string` | AWS Account ID for the DEV target environment (12-digit). |
 | `dev_deployment_role_arn` | `string` | IAM role ARN in DEV account for cross-account deployment. |
@@ -113,7 +113,8 @@ See `examples/` for runnable configurations: `minimal/`, `complete/`, and `opent
 | `sns_subscribers` | `list(string)` | `[]` | Email addresses for approval notifications. |
 | `enable_review_gate` | `bool` | `false` | Include optional review approval stage. |
 | `codebuild_compute_type` | `string` | `"BUILD_GENERAL1_SMALL"` | CodeBuild compute type. |
-| `codebuild_image` | `string` | `"aws/codebuild/amazonlinux-x86_64-standard:5.0"` | CodeBuild managed image. |
+| `codebuild_image` | `string` | `"aws/codebuild/amazonlinux-x86_64-standard:5.0"` | CodeBuild managed image (`aws/codebuild/` prefix required). |
+| `checkov_soft_fail` | `bool` | `false` | When true, checkov findings do not fail the pipeline. |
 | `codebuild_timeout_minutes` | `number` | `60` | Build timeout (5-480 minutes). |
 | `logging_bucket` | `string` | `""` | Existing S3 bucket for access logs. Empty disables logging. |
 | `logging_prefix` | `string` | `""` | S3 key prefix for access logs. Empty uses auto-generated prefix. |
@@ -221,6 +222,10 @@ terraform-pipelines/
 │   ├── FEATURES_1-7.md
 │   ├── FEATURE_8.md
 │   ├── FEATURE_9.md
+│   ├── FEATURE_10.md
+│   ├── FEATURE_11.md
+│   ├── FEATURE_12.md
+│   ├── FEATURE_13.md
 │   └── working/                    # Cross-account role docs and policies
 ├── CHANGELOG.md
 ├── CLAUDE.md
@@ -242,5 +247,5 @@ tflint
 
 - **Architecture:** `docs/ARCHITECTURE_AND_DESIGN.md`
 - **Cross-account roles:** `docs/working/CROSS_ACCOUNT_ROLES.md`
-- **Feature history:** `docs/FEATURES_1-7.md`, `docs/FEATURE_8.md`, `docs/FEATURE_9.md`, `docs/FEATURE_10.md`
+- **Feature history:** `docs/FEATURES_1-7.md`, `docs/FEATURE_8.md` through `docs/FEATURE_13.md`
 - **Changelog:** `CHANGELOG.md`
