@@ -132,6 +132,8 @@ Source Artifact ──► Test DEV / Test PROD (read-only)
 | 11 | CodeStar Connection | `aws_codestarconnections_connection` | GitHub integration (conditional) |
 | 12 | CloudWatch: Log Groups (x4) | `aws_cloudwatch_log_group` | Build log retention |
 | 13 | S3: State Bucket (data) | `data.aws_s3_bucket` | Validate existing bucket (when not creating) |
+| 14 | S3: State Bucket Logging | `aws_s3_bucket_logging` | Access logging for state bucket (conditional on `logging_bucket`) |
+| 15 | S3: Artifact Bucket Logging | `aws_s3_bucket_logging` | Access logging for artifact bucket (conditional on `logging_bucket`) |
 
 ## Cost Estimate
 
@@ -238,19 +240,19 @@ All principals are within the AWS Organization. No external OIDC trust. No role 
 
 ### Security Requirements Checklist
 
-The following must be verified during implementation and testing:
+Verified during E2E deployment test (2026-02-12):
 
-- [ ] CodeBuild projects have `privileged_mode = false` (explicit)
-- [ ] No `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` in any CodeBuild environment variable
-- [ ] S3 bucket policies deny `aws:SecureTransport = false`
-- [ ] S3 Block Public Access enabled on all buckets (all four settings)
-- [ ] IAM policies use specific resource ARNs, not `*`, for `sts:AssumeRole`
-- [ ] SNS topic has encryption enabled (AWS-managed KMS key)
-- [ ] CloudWatch log groups have explicit retention periods (no indefinite retention)
-- [ ] CodeStar Connection uses OAuth/GitHub App (no personal access tokens)
-- [ ] Buildspec files do not echo or log secret values
-- [ ] CodeBuild service role cannot create IAM users, access keys, or modify organization settings
-- [ ] Deployment role trust policies include `aws:PrincipalOrgID` condition
+- [x] CodeBuild projects have `privileged_mode = false` (explicit)
+- [x] No `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` in any CodeBuild environment variable
+- [x] S3 bucket policies deny `aws:SecureTransport = false`
+- [x] S3 Block Public Access enabled on all buckets (all four settings)
+- [x] IAM policies use specific resource ARNs, not `*`, for `sts:AssumeRole`
+- [x] SNS topic has encryption enabled (AWS-managed KMS key)
+- [x] CloudWatch log groups have explicit retention periods (no indefinite retention)
+- [x] CodeStar Connection uses OAuth/GitHub App (no personal access tokens)
+- [x] Buildspec files do not echo or log secret values
+- [x] CodeBuild service role cannot create IAM users, access keys, or modify organization settings
+- [x] Deployment role trust policies include `aws:PrincipalOrgID` condition
 
 ## Terraform Best Practices
 
@@ -296,7 +298,7 @@ The following practices are implemented based on [AWS Prescriptive Guidance: Bes
 
 ```
 terraform-pipelines/               # Module root
-├── main.tf                         # CodePipeline + CodeBuild projects
+├── main.tf                         # CodePipeline + CodeBuild projects + log groups
 ├── iam.tf                          # IAM roles and policies
 ├── storage.tf                      # S3 buckets (state + artifacts) + SNS topic
 ├── codestar.tf                     # CodeStar Connection (conditional)
@@ -304,7 +306,7 @@ terraform-pipelines/               # Module root
 ├── outputs.tf                      # All module outputs
 ├── locals.tf                       # Computed values (bucket names, tags, etc.)
 ├── versions.tf                     # required_version, required_providers
-├── buildspecs/                     # CodeBuild buildspec files
+├── buildspecs/                     # CodeBuild buildspec files (inline via file())
 │   ├── prebuild.yml
 │   ├── plan.yml
 │   ├── deploy.yml
@@ -319,9 +321,22 @@ terraform-pipelines/               # Module root
 │   └── opentofu/                   # OpenTofu runtime example
 │       ├── main.tf
 │       └── variables.tf
+├── tests/
+│   ├── e2e/                        # End-to-end test root module
+│   │   └── main.tf
+│   └── test-terraform.sh           # Validation and deployment test script
 ├── docs/
+│   ├── ARCHITECTURE_AND_DESIGN.md  # This file
 │   ├── codepipeline-mvp-statement.md
-│   └── ARCHITECTURE_AND_DESIGN.md
+│   ├── FEATURES_1-7.md
+│   ├── FEATURE_8.md
+│   ├── FEATURE_9.md
+│   └── working/                    # Cross-account role docs and policies
+│       ├── CROSS_ACCOUNT_ROLES.md
+│       ├── deployment-role-trust-policy.json
+│       ├── boundary-policy-dev.json
+│       └── boundary-policy-prod.json
+├── CHANGELOG.md
 ├── prd.md
 ├── progress.txt
 ├── CLAUDE.md
@@ -334,7 +349,7 @@ terraform-pipelines/               # Module root
 |------|----------|
 | `main.tf` | `aws_codepipeline`, `aws_codebuild_project` (x4), `aws_cloudwatch_log_group` (x4) |
 | `iam.tf` | `aws_iam_role` (x2), `aws_iam_role_policy` (x2) |
-| `storage.tf` | `aws_s3_bucket` (x2, state conditional), bucket configs, `aws_sns_topic`, `aws_sns_topic_subscription`, `data.aws_s3_bucket` |
+| `storage.tf` | `aws_s3_bucket` (x2, state conditional), bucket configs, `aws_s3_bucket_logging` (x2, conditional), `aws_sns_topic`, `aws_sns_topic_subscription`, `data.aws_s3_bucket` |
 | `codestar.tf` | `aws_codestarconnections_connection` (conditional) |
 | `variables.tf` | All `variable` blocks with types, descriptions, defaults, validation |
 | `outputs.tf` | All `output` blocks |
@@ -350,6 +365,8 @@ terraform-pipelines/               # Module root
 | CodeStar Connection | `var.codestar_connection_arn == ""` | `count = var.codestar_connection_arn == "" ? 1 : 0` |
 | Optional Review Stage | `var.enable_review_gate` | `dynamic "stage"` block in CodePipeline |
 | SNS Subscriptions | `length(var.sns_subscribers) > 0` | `for_each = toset(var.sns_subscribers)` |
+| S3 State Bucket Logging | `var.create_state_bucket && var.logging_bucket != ""` | `count = var.create_state_bucket && var.logging_bucket != "" ? 1 : 0` |
+| S3 Artifact Bucket Logging | `var.logging_bucket != ""` | `count = var.logging_bucket != "" ? 1 : 0` |
 
 ### Locals for Conditional References
 
@@ -372,7 +389,7 @@ locals {
 |---|----------|-----------|
 | 1 | Reusable Terraform module (not root module) | Consumers invoke via `module {}` block. Supports multiple pipeline instances from one codebase. |
 | 2 | 4 CodeBuild projects, reused with env vars | Deploy and Test projects are parameterized per stage (TARGET_ENV, TARGET_ROLE). Reduces resource count from 6 to 4. |
-| 3 | Buildspec files in `buildspecs/` directory | Separate YAML files rather than inline in Terraform. Easier to read, lint, and modify independently. |
+| 3 | Buildspec files in `buildspecs/` directory, loaded inline via `file()` | Separate YAML files for readability, loaded inline via `file("${path.module}/buildspecs/...")` so they're embedded in the CodeBuild project config. This eliminates dependency on the consumer's source repo containing buildspec files. |
 | 4 | SSE-S3 encryption (not KMS) | Simpler — no KMS key lifecycle to manage. Sufficient for state and artifacts in MVP. Post-MVP: customer-managed KMS keys for cross-account artifact sharing. |
 | 5 | SNS uses AWS-managed KMS key | Encryption at rest with zero key management overhead. |
 | 6 | `count` for conditional resources | Standard Terraform pattern for single conditional resources (state bucket, CodeStar connection). |
@@ -388,6 +405,9 @@ locals {
 | 16 | Graceful var-file handling in buildspecs | Plan and deploy buildspecs check if `environments/${TARGET_ENV}.tfvars` exists before passing `-var-file`. Supports simple projects without tfvars. |
 | 17 | Privileged mode explicitly disabled | CodeBuild projects set `privileged_mode = false`. No Docker-in-Docker needed. Required by Security Hub [CodeBuild.5]. |
 | 18 | No provider block in module | Module does not configure the AWS provider. Consumer manages provider configuration. Per AWS Prescriptive Guidance and Terraform module best practices. |
+| 19 | Optional S3 access logging | Access logging is opt-in via `logging_bucket` variable. When provided, both state and artifact buckets log to the specified bucket. Default is no logging — CloudTrail provides API-level audit already; S3 access logging adds object-level granularity as defense-in-depth. Per SecOps assessment R-1. |
+| 20 | 7-day multipart upload abort | Artifact bucket lifecycle includes `abort_incomplete_multipart_upload` with 7-day threshold. Prevents indefinite storage cost from abandoned uploads. Per SecOps assessment R-2 (CKV_AWS_300). |
+| 21 | Log retention default stays at 30 days | Default `log_retention_days` remains 30 to avoid breaking existing consumers. Production compliance recommendation (365 days) documented in variable description and `examples/complete/`. Per SecOps assessment R-3 (CKV_AWS_338). |
 
 ## Deployment Workflow
 

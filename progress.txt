@@ -71,3 +71,10 @@
     - Verify full pipeline flow: source → plan → deploy DEV → approve → deploy PROD
     - Verify clean terraform destroy
     NOTES: Started 2026-02-12, Completed 2026-02-12
+
+[x] Feature 10: SecOps Security Hardening
+    Source: docs/working/secops-assessment-report.md (2026-02-12 assessment)
+    [x] 10.1 — Add optional S3 access logging (logging_bucket variable, both state + artifact buckets)
+    [x] 10.2 — Add abort_incomplete_multipart_upload to artifact bucket lifecycle (7-day threshold)
+    [x] 10.3 — Document log_retention_days=365 compliance recommendation (variable description + examples/complete/)
+    NOTES: Started 2026-02-12, Completed 2026-02-12

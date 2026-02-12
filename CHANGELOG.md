@@ -1,5 +1,9 @@
 # Changelog
 
+## [Feature 10] — 2026-02-12
+
+SecOps security hardening based on Checkov + Trivy assessment. Added optional S3 access logging for state and artifact buckets via `logging_bucket` variable. Added `abort_incomplete_multipart_upload` (7-day) to artifact bucket lifecycle. Updated `log_retention_days` description with 365-day compliance recommendation and set `examples/complete/` to 365.
+
 ## [Feature 9] — 2026-02-12
 
 End-to-end deployment test of the full pipeline module. Deployed 27 resources to the Automation Account, tested all 9 pipeline stages (Source through Test-PROD) with the terraform-test repo, verified S3 buckets deployed to both DEV and PROD accounts, and completed clean terraform destroy. Fixes applied during E2E: inline buildspecs via `file()`, YAML single-quoted echo commands, `codestar-connections:UseConnection` permission, account ID in bucket names, and permissions boundary updates.

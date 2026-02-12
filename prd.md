@@ -194,6 +194,44 @@ Deploy the pipeline to the Automation Account and verify it can deploy a simple 
 - Deploy PROD creates resources in account 264675080489 after approval
 - Pipeline can be destroyed cleanly via `terraform destroy`
 
+### Feature 10: SecOps Security Hardening
+
+Address three recommendations from the SecOps security assessment (Checkov + Trivy scans, 2026-02-12). No critical or high-severity findings exist — these are defense-in-depth improvements.
+
+**Source:** `docs/working/secops-assessment-report.md`
+
+#### 10.1 — S3 Access Logging
+
+Add optional S3 server access logging for both the state bucket and artifact bucket. When a `logging_bucket` variable is provided, enable access logging on both buckets. When empty (default), no logging resources are created.
+
+**Acceptance Criteria:**
+- New variable `logging_bucket` (type `string`, default `""`) — name of an existing S3 bucket to receive access logs
+- New variable `logging_prefix` (type `string`, default `""`) — optional prefix override; if empty, defaults to `s3-access-logs/<project_name>-<bucket_type>/`
+- When `logging_bucket != ""`, create `aws_s3_bucket_logging.state` (conditional on `create_state_bucket && logging_bucket != ""`)
+- When `logging_bucket != ""`, create `aws_s3_bucket_logging.artifacts`
+- Target prefix pattern: `s3-access-logs/<project_name>-state/` and `s3-access-logs/<project_name>-artifacts/`
+- When `logging_bucket == ""` (default), no logging resources are created — no breaking change to existing consumers
+- Checkov CKV_AWS_18 resolves to PASSED when `logging_bucket` is provided
+
+#### 10.2 — Abort Incomplete Multipart Uploads
+
+Add an `abort_incomplete_multipart_upload` block to the artifact bucket lifecycle configuration. This prevents incomplete multipart uploads from accumulating indefinitely and incurring storage costs.
+
+**Acceptance Criteria:**
+- Add `abort_incomplete_multipart_upload { days_after_initiation = 7 }` to the existing `aws_s3_bucket_lifecycle_configuration.artifacts` resource
+- No new variables required — 7-day abort period is a safe default for pipeline artifacts
+- Checkov CKV_AWS_300 resolves to PASSED
+- Existing `expire-artifacts` lifecycle rule is unchanged
+
+#### 10.3 — Log Retention Compliance Documentation
+
+Document the recommendation that production deployments should set `log_retention_days = 365` for compliance frameworks (SOC2, PCI-DSS). The default remains 30 days to avoid breaking existing consumers.
+
+**Acceptance Criteria:**
+- `examples/complete/` sets `log_retention_days = 365` to demonstrate the compliance-recommended value
+- Variable description for `log_retention_days` updated to mention the 365-day compliance recommendation
+- No change to the default value (remains 30)
+
 ## Input Variables
 
 ### Required
@@ -225,6 +263,8 @@ Deploy the pipeline to the Automation Account and verify it can deploy a simple 
 | `codebuild_timeout_minutes` | `number` | `60` | Build timeout for CodeBuild projects. |
 | `log_retention_days` | `number` | `30` | CloudWatch log group retention in days. |
 | `artifact_retention_days` | `number` | `30` | S3 artifact lifecycle expiry in days. |
+| `logging_bucket` | `string` | `""` | Existing S3 bucket name for access logs. Empty = no logging. |
+| `logging_prefix` | `string` | `""` | S3 key prefix override for access logs. Empty = auto-generated. |
 | `tags` | `map(string)` | `{}` | Additional tags merged with module-managed tags. |
 
 ## Outputs

@@ -163,8 +163,20 @@ variable "codebuild_timeout_minutes" {
   }
 }
 
+variable "logging_bucket" {
+  description = "Existing S3 bucket name for access logs. When provided, enables server access logging on state and artifact buckets. Leave empty to disable."
+  type        = string
+  default     = ""
+}
+
+variable "logging_prefix" {
+  description = "S3 key prefix for access logs. When empty, defaults to s3-access-logs/<project_name>-<bucket_type>/."
+  type        = string
+  default     = ""
+}
+
 variable "log_retention_days" {
-  description = "CloudWatch log group retention in days."
+  description = "CloudWatch log group retention in days. For compliance (SOC2, PCI-DSS), set to 365."
   type        = number
   default     = 30
 

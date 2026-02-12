@@ -37,7 +37,7 @@ module "pipeline" {
   codebuild_compute_type    = "BUILD_GENERAL1_MEDIUM"
   codebuild_image           = "aws/codebuild/amazonlinux-x86_64-standard:5.0"
   codebuild_timeout_minutes = 90
-  log_retention_days        = 90
+  log_retention_days        = 365
   artifact_retention_days   = 60
 
   tags = {

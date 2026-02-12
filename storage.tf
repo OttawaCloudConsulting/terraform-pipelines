@@ -64,6 +64,13 @@ resource "aws_s3_bucket_policy" "state" {
   })
 }
 
+resource "aws_s3_bucket_logging" "state" {
+  count         = var.create_state_bucket && var.logging_bucket != "" ? 1 : 0
+  bucket        = aws_s3_bucket.state[0].id
+  target_bucket = var.logging_bucket
+  target_prefix = var.logging_prefix != "" ? var.logging_prefix : "s3-access-logs/${var.project_name}-state/"
+}
+
 # Data source for existing state bucket
 data "aws_s3_bucket" "existing_state" {
   count  = var.create_state_bucket ? 0 : 1
@@ -131,6 +138,13 @@ resource "aws_s3_bucket_policy" "artifacts" {
   })
 }
 
+resource "aws_s3_bucket_logging" "artifacts" {
+  count         = var.logging_bucket != "" ? 1 : 0
+  bucket        = aws_s3_bucket.artifacts.id
+  target_bucket = var.logging_bucket
+  target_prefix = var.logging_prefix != "" ? var.logging_prefix : "s3-access-logs/${var.project_name}-artifacts/"
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
 
@@ -140,6 +154,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 
     expiration {
       days = var.artifact_retention_days
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }
