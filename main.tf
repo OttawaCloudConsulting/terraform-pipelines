@@ -6,24 +6,32 @@ data "aws_caller_identity" "current" {}
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "prebuild" {
+  #checkov:skip=CKV_AWS_158:Post-MVP — KMS CMK encryption for CloudWatch logs (design decision #4)
+  #checkov:skip=CKV_AWS_338:Consumer-configurable via log_retention_days variable; default 30d documented
   name              = "/codebuild/${var.project_name}-prebuild"
   retention_in_days = var.log_retention_days
   tags              = local.all_tags
 }
 
 resource "aws_cloudwatch_log_group" "plan" {
+  #checkov:skip=CKV_AWS_158:Post-MVP — KMS CMK encryption for CloudWatch logs (design decision #4)
+  #checkov:skip=CKV_AWS_338:Consumer-configurable via log_retention_days variable; default 30d documented
   name              = "/codebuild/${var.project_name}-plan"
   retention_in_days = var.log_retention_days
   tags              = local.all_tags
 }
 
 resource "aws_cloudwatch_log_group" "deploy" {
+  #checkov:skip=CKV_AWS_158:Post-MVP — KMS CMK encryption for CloudWatch logs (design decision #4)
+  #checkov:skip=CKV_AWS_338:Consumer-configurable via log_retention_days variable; default 30d documented
   name              = "/codebuild/${var.project_name}-deploy"
   retention_in_days = var.log_retention_days
   tags              = local.all_tags
 }
 
 resource "aws_cloudwatch_log_group" "test" {
+  #checkov:skip=CKV_AWS_158:Post-MVP — KMS CMK encryption for CloudWatch logs (design decision #4)
+  #checkov:skip=CKV_AWS_338:Consumer-configurable via log_retention_days variable; default 30d documented
   name              = "/codebuild/${var.project_name}-test"
   retention_in_days = var.log_retention_days
   tags              = local.all_tags
@@ -34,6 +42,7 @@ resource "aws_cloudwatch_log_group" "test" {
 # -----------------------------------------------------------------------------
 
 resource "aws_codebuild_project" "prebuild" {
+  #checkov:skip=CKV_AWS_147:Post-MVP — CMK encryption for CodeBuild projects (design decision #4)
   name           = "${var.project_name}-prebuild"
   description    = "Pre-build stage for ${var.project_name} pipeline"
   service_role   = aws_iam_role.codebuild.arn
@@ -81,6 +90,7 @@ resource "aws_codebuild_project" "prebuild" {
 }
 
 resource "aws_codebuild_project" "plan" {
+  #checkov:skip=CKV_AWS_147:Post-MVP — CMK encryption for CodeBuild projects (design decision #4)
   name           = "${var.project_name}-plan"
   description    = "Plan and security scan stage for ${var.project_name} pipeline"
   service_role   = aws_iam_role.codebuild.arn
@@ -121,6 +131,11 @@ resource "aws_codebuild_project" "plan" {
       name  = "STATE_KEY_PREFIX"
       value = local.state_key_prefix
     }
+
+    environment_variable {
+      name  = "CHECKOV_SOFT_FAIL"
+      value = tostring(var.checkov_soft_fail)
+    }
   }
 
   source {
@@ -138,6 +153,7 @@ resource "aws_codebuild_project" "plan" {
 }
 
 resource "aws_codebuild_project" "deploy" {
+  #checkov:skip=CKV_AWS_147:Post-MVP — CMK encryption for CodeBuild projects (design decision #4)
   name           = "${var.project_name}-deploy"
   description    = "Deploy stage for ${var.project_name} pipeline"
   service_role   = aws_iam_role.codebuild.arn
@@ -195,6 +211,7 @@ resource "aws_codebuild_project" "deploy" {
 }
 
 resource "aws_codebuild_project" "test" {
+  #checkov:skip=CKV_AWS_147:Post-MVP — CMK encryption for CodeBuild projects (design decision #4)
   name           = "${var.project_name}-test"
   description    = "Test stage for ${var.project_name} pipeline"
   service_role   = aws_iam_role.codebuild.arn
@@ -246,6 +263,7 @@ resource "aws_codebuild_project" "test" {
 # -----------------------------------------------------------------------------
 
 resource "aws_codepipeline" "this" {
+  #checkov:skip=CKV_AWS_219:Post-MVP — CMK encryption for CodePipeline artifact store (design decision #4)
   name          = "${var.project_name}-pipeline"
   role_arn      = aws_iam_role.codepipeline.arn
   pipeline_type = "V2"

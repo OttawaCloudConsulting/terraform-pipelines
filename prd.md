@@ -232,6 +232,141 @@ Document the recommendation that production deployments should set `log_retentio
 - Variable description for `log_retention_days` updated to mention the 365-day compliance recommendation
 - No change to the default value (remains 30)
 
+### Feature 11: PR Review — Security Hardening
+
+Address security findings from the PR #1 review (Security Engineer, Architect, Senior Developer, Copilot). Harden the security gate, add inline checkov suppressions for deferred items, and apply defense-in-depth improvements.
+
+**Source:** `docs/working/pr-review/pr-review-response.md`
+
+#### 11.1 — Fix Checkov Security Gate
+
+Remove `|| true` from the checkov command in the plan buildspec. Use `--hard-fail-on` to fail on CRITICAL and HIGH findings. Add a `checkov_soft_fail` variable (default: `false`) that allows consumers to override during initial adoption.
+
+**Acceptance Criteria:**
+- Remove `|| true` from `buildspecs/plan.yml` checkov command
+- Add `--hard-fail-on CRITICAL,HIGH` flag to the checkov command
+- New variable `checkov_soft_fail` (type `bool`, default `false`) — when `true`, appends `--soft-fail` to checkov
+- CodeBuild plan project passes `CHECKOV_SOFT_FAIL` environment variable to buildspec
+- Update `docs/ARCHITECTURE_AND_DESIGN.md` SEC11-BP07 table to accurately reflect the `--hard-fail-on` behavior
+- Checkov findings at CRITICAL or HIGH severity stop the pipeline (unless `checkov_soft_fail = true`)
+
+#### 11.2 — Add Inline Checkov Suppressions for Deferred Items
+
+Add `#checkov:skip=` comments to Terraform resources for all checks that fail due to documented design decisions (SSE-S3 vs KMS, log retention default, cross-region replication, event notifications). Each suppression must include a rationale comment.
+
+**Acceptance Criteria:**
+- Suppress the following checks with inline `#checkov:skip=` comments and rationale:
+
+| Check ID | Resource(s) | Rationale |
+|----------|------------|-----------|
+| CKV_AWS_158 | 4 CloudWatch log groups (`main.tf`) | Post-MVP: KMS CMK encryption (design decision #4) |
+| CKV_AWS_338 | 4 CloudWatch log groups (`main.tf`) | Consumer-configurable via log_retention_days; default 30d documented |
+| CKV_AWS_147 | 4 CodeBuild projects (`main.tf`) | Post-MVP: CMK encryption (design decision #4) |
+| CKV_AWS_219 | 1 CodePipeline (`main.tf`) | Post-MVP: CMK artifact encryption (design decision #4) |
+| CKV_AWS_145 | 2 S3 buckets (`storage.tf`) | Post-MVP: SSE-KMS encryption (design decision #4) |
+| CKV_AWS_144 | 2 S3 buckets (`storage.tf`) | Single-region design; cross-region replication out of scope |
+| CKV2_AWS_62 | 2 S3 buckets (`storage.tf`) | Event notifications not required for state/artifact buckets |
+| CKV_AWS_18 | 2 S3 buckets (`storage.tf`) | Conditional via logging_bucket variable (Feature 10.1) |
+| CKV2_AWS_61 | 1 S3 state bucket (`storage.tf`) | State bucket intentionally retains all versions; no lifecycle expiry |
+| CKV_AWS_21 | 1 S3 state bucket (`storage.tf`) | False positive: versioning configured via separate aws_s3_bucket_versioning resource |
+| CKV2_AWS_6 | 1 S3 state bucket (`storage.tf`) | False positive: public access block configured via separate resource |
+
+- After suppressions, `checkov -d .` against the module code produces zero failures (all suppressed or passing)
+- Suppression rationale references design decision numbers where applicable
+
+#### 11.3 — Add `codebuild_image` Validation
+
+Add a validation block to the `codebuild_image` variable that enforces AWS-managed CodeBuild images only (prefix `aws/codebuild/`). Prevents supply chain attacks via custom Docker images.
+
+**Acceptance Criteria:**
+- Validation regex: `^aws/codebuild/`
+- Error message: `"codebuild_image must be an AWS-managed CodeBuild image (prefix: aws/codebuild/)."`
+- Existing default `"aws/codebuild/amazonlinux-x86_64-standard:5.0"` passes validation
+
+#### 11.4 — Add SNS Topic Policy `aws:SourceAccount` Condition
+
+Add an `aws:SourceAccount` condition to the SNS topic policy to prevent confused deputy attacks from CodePipeline services in other AWS accounts.
+
+**Acceptance Criteria:**
+- SNS topic policy `AllowCodePipelinePublish` statement includes `Condition` block with `StringEquals` on `aws:SourceAccount` matching `data.aws_caller_identity.current.account_id`
+- Existing pipeline functionality is unchanged (same-account CodePipeline can still publish)
+
+#### 11.5 — Add `prevent_destroy` Lifecycle on State Bucket
+
+Add `lifecycle { prevent_destroy = true }` to the state bucket to prevent catastrophic state loss via accidental `terraform destroy`.
+
+**Acceptance Criteria:**
+- `aws_s3_bucket.state` resource includes `lifecycle { prevent_destroy = true }`
+- `terraform destroy` targeting the pipeline module will fail if a state bucket exists (user must manually remove the lifecycle rule to destroy)
+
+#### 11.6 — Add `s3:GetBucketLocation` to CodeBuild IAM Policy
+
+Add `s3:GetBucketLocation` to the `S3StateBucketAccess` IAM policy statement. Required by the Terraform S3 backend during `terraform init` for region determination.
+
+**Acceptance Criteria:**
+- `s3:GetBucketLocation` added to the `S3StateBucketAccess` statement in `iam.tf`
+- No change to resource ARN scope (same state bucket ARN)
+
+#### 11.7 — Pin Provider Constraint to `~> 6.0`
+
+Change the AWS provider version constraint from `>= 5.0` to `~> 6.0` in the module and all examples. The installed version is 6.32.0 (verified via `.terraform.lock.hcl`), so pinning to `~> 6.0` allows 6.x minor/patch updates while blocking 7.0+ breaking changes.
+
+**Acceptance Criteria:**
+- `versions.tf` updated: `version = "~> 6.0"`
+- `examples/minimal/main.tf` updated: `version = "~> 6.0"`
+- `examples/complete/main.tf` updated: `version = "~> 6.0"`
+- `examples/opentofu/main.tf` updated: `version = "~> 6.0"`
+- `terraform init` succeeds with the pinned constraint (no downgrade)
+
+### Feature 12: PR Review — Buildspec & Code Quality
+
+Address code quality findings from the PR #1 review. Fix buildspec shell safety, variable validation bugs, and input constraint gaps.
+
+**Source:** `docs/working/pr-review/pr-review-response.md`
+
+#### 12.1 — Add `set -euo pipefail` to Buildspec Shell Blocks
+
+Add `set -euo pipefail` as the first line in every multi-line shell block across all four buildspecs. Without this, intermediate command failures in `|` blocks are silently swallowed.
+
+**Acceptance Criteria:**
+- All multi-line shell blocks in `buildspecs/prebuild.yml`, `buildspecs/plan.yml`, `buildspecs/deploy.yml`, `buildspecs/test.yml` start with `set -euo pipefail`
+- Existing shell logic continues to function correctly (no unintended failures from unset variables or pipe errors)
+
+#### 12.2 — Fix Cross-Variable Validation in `state_bucket`
+
+Remove the cross-variable validation from the `state_bucket` variable block (references `var.create_state_bucket`, which Terraform does not support in `validation` blocks). Move the invariant to a `precondition` on `data.aws_s3_bucket.existing_state`.
+
+**Acceptance Criteria:**
+- `state_bucket` variable validation block removed (the one referencing `var.create_state_bucket`)
+- `data.aws_s3_bucket.existing_state` resource includes a `lifecycle { precondition }` block that validates `var.state_bucket != ""`
+- `terraform validate` passes
+- Setting `create_state_bucket = false` with empty `state_bucket` produces a clear error at plan time
+
+#### 12.3 — Add `project_name` Length and Consecutive Hyphen Validation
+
+Update the `project_name` validation regex to enforce a maximum length of 34 characters (prevents IAM role name overflow at 64-char limit) and reject consecutive hyphens (violates S3 naming rules).
+
+**Acceptance Criteria:**
+- Updated regex: `^[a-z][a-z0-9-]{1,32}[a-z0-9]$` (3-34 chars, starts with letter)
+- Additional condition: no consecutive hyphens (`--`)
+- Error message updated to explain both constraints
+- Existing valid `project_name` values continue to pass validation
+
+### Feature 13: PR Review — Repo Hygiene
+
+Address repository hygiene findings from the PR #1 review.
+
+**Source:** `docs/working/pr-review/pr-review-response.md`
+
+#### 13.1 — Update `.gitignore`
+
+Add missing entries for Terraform artifacts that are currently showing as untracked in git status.
+
+**Acceptance Criteria:**
+- `.gitignore` updated to include: `*.tfplan`, `*.tfplan.*`, `tfplan.binary`, `tfplan.json`, `.terraform.lock.hcl`
+- Add `.claude/settings.local.json` to `.gitignore`
+- Existing untracked files in `examples/` and `tests/e2e/` are no longer shown in `git status`
+
 ## Input Variables
 
 ### Required
@@ -259,7 +394,8 @@ Document the recommendation that production deployments should set `log_retentio
 | `sns_subscribers` | `list(string)` | `[]` | Email addresses for approval notifications. |
 | `enable_review_gate` | `bool` | `false` | Whether to include the optional review approval stage. |
 | `codebuild_compute_type` | `string` | `"BUILD_GENERAL1_SMALL"` | CodeBuild compute type. |
-| `codebuild_image` | `string` | `"aws/codebuild/amazonlinux-x86_64-standard:5.0"` | CodeBuild managed image. |
+| `codebuild_image` | `string` | `"aws/codebuild/amazonlinux-x86_64-standard:5.0"` | CodeBuild managed image. Validated to `aws/codebuild/` prefix. |
+| `checkov_soft_fail` | `bool` | `false` | When true, checkov findings do not fail the pipeline. |
 | `codebuild_timeout_minutes` | `number` | `60` | Build timeout for CodeBuild projects. |
 | `log_retention_days` | `number` | `30` | CloudWatch log group retention in days. |
 | `artifact_retention_days` | `number` | `30` | S3 artifact lifecycle expiry in days. |

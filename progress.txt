@@ -78,3 +78,26 @@
     [x] 10.2 — Add abort_incomplete_multipart_upload to artifact bucket lifecycle (7-day threshold)
     [x] 10.3 — Document log_retention_days=365 compliance recommendation (variable description + examples/complete/)
     NOTES: Started 2026-02-12, Completed 2026-02-12
+
+[x] Feature 11: PR Review — Security Hardening
+    Source: docs/working/pr-review/pr-review-response.md
+    [x] 11.1 — Remove checkov || true, add --hard-fail-on CRITICAL,HIGH, add checkov_soft_fail variable
+    [x] 11.2 — Add inline checkov:skip suppressions for 11 deferred checks (24 resource instances)
+    [x] 11.3 — Add codebuild_image validation (aws/codebuild/ prefix)
+    [x] 11.4 — Add SNS topic policy aws:SourceAccount condition
+    [x] 11.5 — Add prevent_destroy lifecycle on state bucket
+    [x] 11.6 — Add s3:GetBucketLocation to CodeBuild IAM policy
+    [x] 11.7 — Pin provider constraint to ~> 6.0 (module + 3 examples)
+    NOTES: Started 2026-02-12, Completed 2026-02-12
+
+[ ] Feature 12: PR Review — Buildspec & Code Quality
+    Source: docs/working/pr-review/pr-review-response.md
+    [ ] 12.1 — Add set -euo pipefail to all buildspec shell blocks
+    [ ] 12.2 — Fix cross-variable validation (state_bucket -> precondition on data source)
+    [ ] 12.3 — Add project_name length (max 34) + consecutive hyphen validation
+    NOTES:
+
+[ ] Feature 13: PR Review — Repo Hygiene
+    Source: docs/working/pr-review/pr-review-response.md
+    [ ] 13.1 — Update .gitignore (tfplan, .terraform.lock.hcl, settings.local.json)
+    NOTES:

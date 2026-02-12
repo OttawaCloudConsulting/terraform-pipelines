@@ -49,7 +49,12 @@ phases:
       - echo "Converting plan to JSON for security scan..."
       - terraform show -json tfplan > tfplan.json
       - echo "Running checkov security scan..."
-      - checkov -f tfplan.json --framework terraform_plan --output junitxml --output-file checkov-report.xml || true
+      - |
+        CHECKOV_ARGS="-f tfplan.json --framework terraform_plan --output junitxml --output-file checkov-report.xml --hard-fail-on CRITICAL,HIGH"
+        if [ "${CHECKOV_SOFT_FAIL}" = "true" ]; then
+          CHECKOV_ARGS="${CHECKOV_ARGS} --soft-fail"
+        fi
+        checkov ${CHECKOV_ARGS}
 
   post_build:
     commands:

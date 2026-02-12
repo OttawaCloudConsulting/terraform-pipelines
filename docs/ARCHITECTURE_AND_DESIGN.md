@@ -210,7 +210,7 @@ The following security controls are implemented based on [AWS CodePipeline Secur
 
 | Principle | Implementation |
 |-----------|----------------|
-| **Security tests cannot be bypassed** | Checkov scan runs in Plan stage before any deployment. Non-zero exit stops pipeline |
+| **Security tests cannot be bypassed** | Checkov scan runs in Plan stage with `--hard-fail-on CRITICAL,HIGH`. Critical/high findings stop the pipeline. Deferred checks suppressed inline with rationale. Consumer can override via `checkov_soft_fail` variable |
 | **Limited permissions** | CodeBuild role has no admin access. Scoped to specific S3 paths, log groups, and target role ARNs |
 | **Safeguards against wrong environment** | TARGET_ENV and TARGET_ROLE set per-stage by CodePipeline, not by developer scripts |
 | **No long-lived credentials** | All credentials are temporary (STS sessions). No IAM access keys anywhere |
@@ -408,6 +408,9 @@ locals {
 | 19 | Optional S3 access logging | Access logging is opt-in via `logging_bucket` variable. When provided, both state and artifact buckets log to the specified bucket. Default is no logging — CloudTrail provides API-level audit already; S3 access logging adds object-level granularity as defense-in-depth. Per SecOps assessment R-1. |
 | 20 | 7-day multipart upload abort | Artifact bucket lifecycle includes `abort_incomplete_multipart_upload` with 7-day threshold. Prevents indefinite storage cost from abandoned uploads. Per SecOps assessment R-2 (CKV_AWS_300). |
 | 21 | Log retention default stays at 30 days | Default `log_retention_days` remains 30 to avoid breaking existing consumers. Production compliance recommendation (365 days) documented in variable description and `examples/complete/`. Per SecOps assessment R-3 (CKV_AWS_338). |
+| 22 | Checkov `--hard-fail-on CRITICAL,HIGH` with inline suppressions | Checkov runs as a real security gate (not advisory). Deferred items (KMS CMK, cross-region replication, event notifications) are suppressed inline with rationale referencing design decisions. Consumer can override via `checkov_soft_fail` variable for initial adoption. Per PR review AC-3/H-1/SF-5/C-8. |
+| 23 | Provider constraint `~> 6.0` | Pinned to AWS provider 6.x based on installed version 6.32.0. Pessimistic constraint allows minor/patch updates, blocks breaking major versions. Per project best practices and PR review H-3/SF-3/C-2. |
+| 24 | State bucket `prevent_destroy` lifecycle | Prevents catastrophic state loss from accidental `terraform destroy`. Consumer must explicitly remove lifecycle rule to destroy the bucket. Per PR review DR-2/SF-7/L-4. |
 
 ## Deployment Workflow
 

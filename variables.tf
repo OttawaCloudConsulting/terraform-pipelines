@@ -150,6 +150,17 @@ variable "codebuild_image" {
   description = "CodeBuild managed image for all build projects."
   type        = string
   default     = "aws/codebuild/amazonlinux-x86_64-standard:5.0"
+
+  validation {
+    condition     = can(regex("^aws/codebuild/", var.codebuild_image))
+    error_message = "codebuild_image must be an AWS-managed CodeBuild image (prefix: aws/codebuild/)."
+  }
+}
+
+variable "checkov_soft_fail" {
+  description = "When true, checkov findings do not fail the pipeline. Use during initial adoption only."
+  type        = bool
+  default     = false
 }
 
 variable "codebuild_timeout_minutes" {

@@ -1,5 +1,9 @@
 # Changelog
 
+## [Feature 11] — 2026-02-12
+
+PR review security hardening. Converted checkov from advisory-only (`|| true`) to a real security gate with `--hard-fail-on CRITICAL,HIGH` and `checkov_soft_fail` variable. Added inline `#checkov:skip` suppressions for 11 deferred checks (70 skipped instances) with documented rationale. Added `codebuild_image` validation (aws/codebuild/ prefix), SNS `aws:SourceAccount` condition, `prevent_destroy` on state bucket, `s3:GetBucketLocation` IAM permission. Pinned provider to `~> 6.0` (installed v6.32.0).
+
 ## [Feature 10] — 2026-02-12
 
 SecOps security hardening based on Checkov + Trivy assessment. Added optional S3 access logging for state and artifact buckets via `logging_bucket` variable. Added `abort_incomplete_multipart_upload` (7-day) to artifact bucket lifecycle. Updated `log_retention_days` description with 365-day compliance recommendation and set `examples/complete/` to 365.
