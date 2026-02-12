@@ -6,7 +6,7 @@ phases:
       - echo "=== Test Stage (${TARGET_ENV}) ==="
       # Role assumption and test execution in a single phase to guarantee
       # STS credentials persist across all commands.
-      - echo "Assuming cross-account role: ${TARGET_ROLE}"
+      - 'echo "Assuming cross-account role: $TARGET_ROLE"'
       - |
         CREDENTIALS=$(aws sts assume-role \
           --role-arn "${TARGET_ROLE}" \

@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TrustBrokerRole",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::389068787156:root"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalOrgID": "o-sm2m8zg9c4",
+          "aws:PrincipalArn": "arn:aws:iam::389068787156:role/org/org-automation-broker-role"
+        }
+      }
+    },
+    {
+      "Sid": "TrustCodeBuildServiceRoles",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::389068787156:root"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalOrgID": "o-sm2m8zg9c4"
+        },
+        "StringLike": {
+          "aws:PrincipalArn": "arn:aws:iam::389068787156:role/CodeBuild-*-ServiceRole"
+        }
+      }
+    }
+  ]
+}

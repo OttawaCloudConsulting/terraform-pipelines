@@ -1,0 +1,169 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAllServices",
+      "Effect": "Allow",
+      "Action": "*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowOrganizationVisibility",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:DescribeOrganization",
+        "organizations:ListAccounts",
+        "organizations:ListAccountsForParent"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyCreateProtectedRoles",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePolicy",
+        "iam:AttachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::914089393341:role/org/org-*"
+    },
+    {
+      "Sid": "DenyModifyProtectedRoles",
+      "Effect": "Deny",
+      "Action": [
+        "iam:UpdateRole",
+        "iam:UpdateRoleDescription",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PutRolePermissionsBoundary",
+        "iam:DeleteRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::914089393341:role/org/org-*"
+    },
+    {
+      "Sid": "DenyCreatePermissionBoundaryPolicies",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreatePolicy"
+      ],
+      "Resource": "arn:aws:iam::914089393341:policy/org/Boundary-*"
+    },
+    {
+      "Sid": "DenyModifyAnyBoundaryPolicy",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion"
+      ],
+      "Resource": "arn:aws:iam::914089393341:policy/org/Boundary-*"
+    },
+    {
+      "Sid": "DenyRemovingBoundaries",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::914089393341:role/*"
+    },
+    {
+      "Sid": "RequireBoundaryOnRoleCreation",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::914089393341:role/*",
+      "Condition": {
+        "StringNotEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::914089393341:policy/org/Boundary-Default"
+        }
+      }
+    },
+    {
+      "Sid": "DenyBillingChanges",
+      "Effect": "Deny",
+      "Action": [
+        "aws-portal:ModifyAccount",
+        "aws-portal:ModifyBilling",
+        "aws-portal:ModifyPaymentMethods"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyMarketplaceSubscriptions",
+      "Effect": "Deny",
+      "Action": [
+        "aws-marketplace:Subscribe",
+        "aws-marketplace:Unsubscribe",
+        "aws-marketplace:CreatePrivateMarketplace"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyIdentityCenterChanges",
+      "Effect": "Deny",
+      "Action": [
+        "sso:*",
+        "sso-directory:*",
+        "identitystore:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyCloudTrailChanges",
+      "Effect": "Deny",
+      "Action": [
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:StopLogging",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyConfigChanges",
+      "Effect": "Deny",
+      "Action": [
+        "config:DeleteConfigurationRecorder",
+        "config:DeleteDeliveryChannel",
+        "config:StopConfigurationRecorder",
+        "config:PutConfigurationRecorder",
+        "config:PutDeliveryChannel"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenySecurityServiceChanges",
+      "Effect": "Deny",
+      "Action": [
+        "guardduty:DeleteDetector",
+        "guardduty:DisassociateFromMasterAccount",
+        "guardduty:StopMonitoringMembers",
+        "securityhub:DisableSecurityHub",
+        "securityhub:DisassociateFromMasterAccount",
+        "access-analyzer:DeleteAnalyzer"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ProtectInfrastructureLogs",
+      "Effect": "Deny",
+      "Action": [
+        "logs:DeleteLogGroup",
+        "logs:DeleteLogStream",
+        "logs:PutRetentionPolicy"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:914089393341:log-group:/aws/lambda/aft-*",
+        "arn:aws:logs:*:914089393341:log-group:/aws/codebuild/aft-*",
+        "arn:aws:logs:*:914089393341:log-group:org*"
+      ]
+    }
+  ]
+}

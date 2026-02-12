@@ -1,8 +1,11 @@
 #!/bin/bash
 set -e  # Exit on error
 
-# AWS Profile for testing.
-export AWS_PROFILE=developer-account
+# AWS Profile for deploying to the Automation Account.
+export AWS_PROFILE=aft-automation
+
+# Directory for E2E test root module
+E2E_DIR="tests/e2e"
 
 # Colors for output
 RED='\033[0;31m'
@@ -61,9 +64,9 @@ install_tool() {
     local tool=$1
     local install_method=$2
     local os=$(detect_os)
-    
+
     print_warning "$tool not found. Installing..."
-    
+
     case $install_method in
         brew)
             case $os in
@@ -140,6 +143,7 @@ if command_exists terraform; then
         print_success "Formatting is correct"
     else
         print_warning "Formatting issues found. Run 'terraform fmt -recursive' to fix."
+        exit 2
     fi
 else
     print_error "Terraform not available. Cannot proceed."
@@ -197,18 +201,26 @@ else
     print_warning "trivy not available. Skipping..."
 fi
 
-# Step 8: terraform plan
+# Step 8: terraform plan (using E2E test root module)
 print_step 8 "terraform plan - Generating deployment plan"
-terraform plan -out=tfplan
-print_success "Terraform plan generated successfully"
+if [ -d "$E2E_DIR" ]; then
+    pushd "$E2E_DIR" > /dev/null
+    terraform init
+    terraform plan -out=tfplan
+    print_success "Terraform plan generated successfully"
+else
+    print_error "E2E test directory ($E2E_DIR) not found. Skipping plan/apply."
+    exit 1
+fi
 
-# Step 9: terraform apply
-print_step 9 "terraform apply - Deploying to dev account"
+# Step 9: terraform apply (using E2E test root module)
+print_step 9 "terraform apply - Deploying to automation account"
 terraform apply tfplan
 print_success "Deployment completed successfully"
-    print_warning "Deployment cancelled by user"
-    exit 0
-fi
+
+# Clean up plan file and return to root
+rm -f tfplan
+popd > /dev/null
 
 echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}All tests completed successfully!${NC}"

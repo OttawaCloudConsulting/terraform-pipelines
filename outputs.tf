@@ -47,3 +47,13 @@ output "codestar_connection_arn" {
   description = "ARN of the CodeStar Connection (created or referenced)."
   value       = local.codestar_connection_arn
 }
+
+output "dev_account_id" {
+  description = "AWS Account ID for the DEV target environment."
+  value       = var.dev_account_id
+}
+
+output "prod_account_id" {
+  description = "AWS Account ID for the PROD target environment."
+  value       = var.prod_account_id
+}

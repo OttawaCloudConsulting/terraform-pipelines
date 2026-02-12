@@ -4,8 +4,8 @@ phases:
   pre_build:
     commands:
       - echo "=== Pre-Build Stage ==="
-      - echo "Project: ${PROJECT_NAME}"
-      - echo "IaC Runtime: ${IAC_RUNTIME}"
+      - 'echo "Project: $PROJECT_NAME"'
+      - 'echo "IaC Runtime: $IAC_RUNTIME"'
   build:
     commands:
       - |

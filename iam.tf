@@ -111,6 +111,14 @@ resource "aws_iam_role_policy" "codebuild" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "CodeStarConnectionAccess"
+        Effect = "Allow"
+        Action = "codestar-connections:UseConnection"
+        Resource = [
+          local.codestar_connection_arn
+        ]
+      },
+      {
         Sid    = "CrossAccountAssumeRole"
         Effect = "Allow"
         Action = "sts:AssumeRole"

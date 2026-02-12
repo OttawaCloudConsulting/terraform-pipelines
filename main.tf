@@ -68,7 +68,7 @@ resource "aws_codebuild_project" "prebuild" {
 
   source {
     type      = "CODEPIPELINE"
-    buildspec = "buildspecs/prebuild.yml"
+    buildspec = file("${path.module}/buildspecs/prebuild.yml")
   }
 
   logs_config {
@@ -125,7 +125,7 @@ resource "aws_codebuild_project" "plan" {
 
   source {
     type      = "CODEPIPELINE"
-    buildspec = "buildspecs/plan.yml"
+    buildspec = file("${path.module}/buildspecs/plan.yml")
   }
 
   logs_config {
@@ -182,7 +182,7 @@ resource "aws_codebuild_project" "deploy" {
 
   source {
     type      = "CODEPIPELINE"
-    buildspec = "buildspecs/deploy.yml"
+    buildspec = file("${path.module}/buildspecs/deploy.yml")
   }
 
   logs_config {
@@ -229,7 +229,7 @@ resource "aws_codebuild_project" "test" {
 
   source {
     type      = "CODEPIPELINE"
-    buildspec = "buildspecs/test.yml"
+    buildspec = file("${path.module}/buildspecs/test.yml")
   }
 
   logs_config {

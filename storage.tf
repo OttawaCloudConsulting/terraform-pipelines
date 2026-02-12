@@ -4,7 +4,7 @@
 
 resource "aws_s3_bucket" "state" {
   count  = var.create_state_bucket ? 1 : 0
-  bucket = "${var.project_name}-terraform-state"
+  bucket = "${var.project_name}-terraform-state-${data.aws_caller_identity.current.account_id}"
   tags   = local.all_tags
 }
 
@@ -75,7 +75,7 @@ data "aws_s3_bucket" "existing_state" {
 # -----------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "artifacts" {
-  bucket = "${var.project_name}-pipeline-artifacts"
+  bucket = "${var.project_name}-pipeline-artifacts-${data.aws_caller_identity.current.account_id}"
   tags   = local.all_tags
 }
 
