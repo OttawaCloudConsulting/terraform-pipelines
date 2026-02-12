@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mermaid-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-mermaid@latest"
+      ],
+      "env": {}
+    }
+  }
+}

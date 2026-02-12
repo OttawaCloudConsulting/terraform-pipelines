@@ -1,0 +1,73 @@
+# Progress: Terraform Pipeline Module
+# Source: prd.md + ARCHITECTURE_AND_DESIGN.md
+# Spec: docs/ARCHITECTURE_AND_DESIGN.md is the authoritative design reference
+
+## Features
+
+[x] Feature 1: Project Foundation and Module Structure
+    - Create versions.tf with required_version >= 1.11 and required_providers (aws)
+    - Create variables.tf with all input variables, types, descriptions, defaults, and validation blocks
+    - Create outputs.tf with all module outputs
+    - Create locals.tf with computed values (state_bucket_name, codestar_connection_arn, merged tags)
+    - Create module file structure: main.tf, iam.tf, storage.tf, codestar.tf
+    - Create buildspecs/ directory with prebuild.yml, plan.yml, deploy.yml, test.yml
+    - Verify terraform validate passes
+    NOTES: Started 2026-02-11, Completed 2026-02-12
+
+[x] Feature 2: IAM Roles and Policies
+    - Create CodePipeline-<project_name>-ServiceRole with codepipeline.amazonaws.com trust
+    - Create CodeBuild-<project_name>-ServiceRole with codebuild.amazonaws.com trust
+    - Scope CodeBuild sts:AssumeRole to exactly dev_deployment_role_arn and prod_deployment_role_arn
+    - Grant S3 access for state bucket (state + lockfiles) and artifact bucket
+    - Grant CloudWatch Logs permissions scoped to pipeline log groups
+    - Apply merged tags (fixed + consumer)
+    NOTES: Completed 2026-02-12, implemented with Feature 1
+
+[x] Feature 3: S3 Buckets (State and Artifacts)
+    - State bucket: conditional (count), SSE-S3, versioning, SSL-only policy, Block Public Access
+    - Data source for existing state bucket when create_state_bucket = false
+    - Artifact bucket: per-pipeline, SSE-S3, versioning, SSL-only policy, lifecycle rule
+    NOTES: Completed 2026-02-12, implemented with Feature 1
+
+[x] Feature 4: SNS Topic and Subscriptions
+    - Create SNS topic: <project_name>-pipeline-approvals
+    - Encrypt with AWS-managed SNS key
+    - Optional email subscriptions via sns_subscribers
+    - Topic policy allowing CodePipeline to publish
+    NOTES: Completed 2026-02-12, implemented with Feature 1
+
+[x] Feature 5: CodeStar Connection
+    - Conditional creation when codestar_connection_arn is empty
+    - Reference existing connection when ARN provided
+    - Output connection ARN (created or referenced)
+    NOTES: Completed 2026-02-12, implemented with Feature 1
+
+[x] Feature 6: CodeBuild Projects and Buildspecs
+    - Create 4 CodeBuild projects: prebuild, plan, deploy, test
+    - Create CloudWatch log groups with configurable retention
+    - Configurable compute type, image, and timeout
+    - Buildspecs: IaC runtime install, graceful var-file handling, cross-account role assumption
+    - Plan buildspec: checkov scan with JUnit XML output
+    NOTES: Completed 2026-02-12, implemented with Feature 1
+
+[x] Feature 7: CodePipeline
+    - Create CodePipeline V2 with all 9 stages
+    - Source (CodeStar), Pre-Build, Plan, Optional Review (dynamic), Deploy DEV, Test DEV
+    - Mandatory Approval (SNS), Deploy PROD, Test PROD
+    - Environment variables for TARGET_ROLE and TARGET_ENV per stage
+    NOTES: Completed 2026-02-12, implemented with Feature 1
+
+[ ] Feature 8: Examples and Validation
+    - Create examples/minimal/, examples/complete/, examples/opentofu/
+    - Verify terraform validate succeeds on all examples
+    - Verify terraform fmt -check passes
+    NOTES:
+
+[ ] Feature 9: End-to-End Deployment Test
+    - PREREQUISITE: Create cross-account deployment roles in DEV (914089393341) and PROD (264675080489)
+    - Deploy pipeline to Automation Account (389068787156) using aft-automation profile
+    - Authorize CodeStar Connection for GitHub
+    - Test with OttawaCloudConsulting/terraform-test repo (s3-bucket branch)
+    - Verify full pipeline flow: source → plan → deploy DEV → approve → deploy PROD
+    - Verify clean terraform destroy
+    NOTES:
