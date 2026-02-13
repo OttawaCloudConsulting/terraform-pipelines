@@ -23,7 +23,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # AWS Profile for deploying to the Automation Account.
-export AWS_PROFILE=aft-automation
+# Only set if not already defined by the caller.
+export AWS_PROFILE="${AWS_PROFILE:-aft-automation}"
 
 # Defaults
 TARGET="all"
@@ -297,7 +298,7 @@ fi
 # =============================================================================
 print_step 2 "terraform fmt — checking HCL formatting"
 if ! command_exists terraform; then
-    install_tool "terraform" "brew"
+    install_tool "terraform" "brew" || true
 fi
 
 if ! command_exists terraform; then
@@ -427,7 +428,7 @@ if [[ -n "$DEPLOY" ]]; then
     print_success "terraform plan: tests/$DEPLOY/ plan generated"
 
     print_step 7b "terraform apply — tests/$DEPLOY/"
-    terraform -chdir="$DEPLOY_DIR" apply tfplan
+    terraform -chdir="$DEPLOY_DIR" apply -input=false tfplan
     rm -f "$DEPLOY_DIR/tfplan"
     print_success "terraform apply: tests/$DEPLOY/ deployed"
 else

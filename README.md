@@ -89,7 +89,7 @@ See `examples/` for runnable configurations.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `project_name` | `string` | Name of the Terraform project (3-34 chars, lowercase, no `--`). |
+| `project_name` | `string` | Name of the Terraform project (3-30 chars, lowercase, no `--`). |
 | `github_repo` | `string` | GitHub repository in `org/repo` format. |
 | `dev_account_id` | `string` | 12-digit AWS Account ID for DEV. |
 | `dev_deployment_role_arn` | `string` | IAM role ARN in DEV account. |
