@@ -1,0 +1,693 @@
+2026-02-12T14:02:48-05:00	INFO	[misconfig] Misconfiguration scanning is enabled
+2026-02-12T14:02:48-05:00	INFO	[checks-client] Using existing checks from cache	path="/Users/christian/Library/Caches/trivy/policy/content"
+2026-02-12T14:02:49-05:00	INFO	[terraform scanner] Scanning root module	file_path="examples/complete"
+2026-02-12T14:02:49-05:00	WARN	[terraform parser] Variable values were not found in the environment or variable files. Evaluating may not work correctly.	module="root" variables="codestar_connection_arn, dev_account_id, dev_deployment_role_arn, github_repo, prod_account_id, prod_deployment_role_arn, project_name, state_bucket"
+2026-02-12T14:02:49-05:00	INFO	[terraform scanner] Scanning root module	file_path="examples/minimal"
+2026-02-12T14:02:49-05:00	WARN	[terraform parser] Variable values were not found in the environment or variable files. Evaluating may not work correctly.	module="root" variables="dev_account_id, dev_deployment_role_arn, github_repo, prod_account_id, prod_deployment_role_arn, project_name"
+2026-02-12T14:02:49-05:00	INFO	[terraform scanner] Scanning root module	file_path="examples/opentofu"
+2026-02-12T14:02:49-05:00	WARN	[terraform parser] Variable values were not found in the environment or variable files. Evaluating may not work correctly.	module="root" variables="dev_account_id, dev_deployment_role_arn, github_repo, prod_account_id, prod_deployment_role_arn, project_name"
+2026-02-12T14:02:49-05:00	INFO	[terraform scanner] Scanning root module	file_path="tests/e2e"
+2026-02-12T14:02:49-05:00	ERROR	[terraform parser] Error parsing file	module="root" file_path="main.tf" cause="      map[string]interface {}{\"name\":\"PROJECT_NAME\", \"type\":\"PLAINTEXT\", \"value\":\"e2e-test\"}," err="main.tf:113,18-27: Missing item separator; Expected a comma to mark the beginning of the next item."
+2026-02-12T14:02:49-05:00	INFO	[terraform scanner] Scanning root module	file_path="."
+2026-02-12T14:02:49-05:00	ERROR	[terraform parser] Error parsing file	module="root" file_path="main.tf" cause="      map[string]interface {}{\"name\":\"PROJECT_NAME\", \"type\":\"PLAINTEXT\", \"value\":\"e2e-test\"}," err="main.tf:113,18-27: Missing item separator; Expected a comma to mark the beginning of the next item."
+2026-02-12T14:02:49-05:00	INFO	[terraform parser] No files found, nothing to do.	module="root"
+2026-02-12T14:02:49-05:00	INFO	Detected config files	num=7
+
+Report Summary
+
+┌───────────────────┬───────────────┬───────────────────┐
+│      Target       │     Type      │ Misconfigurations │
+├───────────────────┼───────────────┼───────────────────┤
+│ .                 │ terraformplan │         0         │
+├───────────────────┼───────────────┼───────────────────┤
+│ examples/complete │   terraform   │         0         │
+├───────────────────┼───────────────┼───────────────────┤
+│ examples/minimal  │   terraform   │         0         │
+├───────────────────┼───────────────┼───────────────────┤
+│ examples/opentofu │   terraform   │         0         │
+├───────────────────┼───────────────┼───────────────────┤
+│ main.tf           │   terraform   │        16         │
+├───────────────────┼───────────────┼───────────────────┤
+│ storage.tf        │   terraform   │        18         │
+├───────────────────┼───────────────┼───────────────────┤
+│ tests/e2e         │   terraform   │         0         │
+└───────────────────┴───────────────┴───────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+main.tf (terraform)
+===================
+Tests: 16 (SUCCESSES: 0, FAILURES: 16)
+Failures: 16 (LOW: 16, MEDIUM: 0, HIGH: 0, CRITICAL: 0)
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:8-12
+   via examples/complete/main.tf:16-48 (module.pipeline)
+────────────────────────────────────────
+   8 ┌ resource "aws_cloudwatch_log_group" "prebuild" {
+   9 │   name              = "/codebuild/${var.project_name}-prebuild"
+  10 │   retention_in_days = var.log_retention_days
+  11 │   tags              = local.all_tags
+  12 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:14-18
+   via examples/complete/main.tf:16-48 (module.pipeline)
+────────────────────────────────────────
+  14 ┌ resource "aws_cloudwatch_log_group" "plan" {
+  15 │   name              = "/codebuild/${var.project_name}-plan"
+  16 │   retention_in_days = var.log_retention_days
+  17 │   tags              = local.all_tags
+  18 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:20-24
+   via examples/complete/main.tf:16-48 (module.pipeline)
+────────────────────────────────────────
+  20 ┌ resource "aws_cloudwatch_log_group" "deploy" {
+  21 │   name              = "/codebuild/${var.project_name}-deploy"
+  22 │   retention_in_days = var.log_retention_days
+  23 │   tags              = local.all_tags
+  24 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:26-30
+   via examples/complete/main.tf:16-48 (module.pipeline)
+────────────────────────────────────────
+  26 ┌ resource "aws_cloudwatch_log_group" "test" {
+  27 │   name              = "/codebuild/${var.project_name}-test"
+  28 │   retention_in_days = var.log_retention_days
+  29 │   tags              = local.all_tags
+  30 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:8-12
+   via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+   8 ┌ resource "aws_cloudwatch_log_group" "prebuild" {
+   9 │   name              = "/codebuild/${var.project_name}-prebuild"
+  10 │   retention_in_days = var.log_retention_days
+  11 │   tags              = local.all_tags
+  12 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:14-18
+   via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+  14 ┌ resource "aws_cloudwatch_log_group" "plan" {
+  15 │   name              = "/codebuild/${var.project_name}-plan"
+  16 │   retention_in_days = var.log_retention_days
+  17 │   tags              = local.all_tags
+  18 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:20-24
+   via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+  20 ┌ resource "aws_cloudwatch_log_group" "deploy" {
+  21 │   name              = "/codebuild/${var.project_name}-deploy"
+  22 │   retention_in_days = var.log_retention_days
+  23 │   tags              = local.all_tags
+  24 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:26-30
+   via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+  26 ┌ resource "aws_cloudwatch_log_group" "test" {
+  27 │   name              = "/codebuild/${var.project_name}-test"
+  28 │   retention_in_days = var.log_retention_days
+  29 │   tags              = local.all_tags
+  30 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:8-12
+   via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+   8 ┌ resource "aws_cloudwatch_log_group" "prebuild" {
+   9 │   name              = "/codebuild/${var.project_name}-prebuild"
+  10 │   retention_in_days = var.log_retention_days
+  11 │   tags              = local.all_tags
+  12 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:14-18
+   via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+  14 ┌ resource "aws_cloudwatch_log_group" "plan" {
+  15 │   name              = "/codebuild/${var.project_name}-plan"
+  16 │   retention_in_days = var.log_retention_days
+  17 │   tags              = local.all_tags
+  18 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:20-24
+   via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+  20 ┌ resource "aws_cloudwatch_log_group" "deploy" {
+  21 │   name              = "/codebuild/${var.project_name}-deploy"
+  22 │   retention_in_days = var.log_retention_days
+  23 │   tags              = local.all_tags
+  24 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:26-30
+   via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+  26 ┌ resource "aws_cloudwatch_log_group" "test" {
+  27 │   name              = "/codebuild/${var.project_name}-test"
+  28 │   retention_in_days = var.log_retention_days
+  29 │   tags              = local.all_tags
+  30 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:8-12
+   via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+   8 ┌ resource "aws_cloudwatch_log_group" "prebuild" {
+   9 │   name              = "/codebuild/${var.project_name}-prebuild"
+  10 │   retention_in_days = var.log_retention_days
+  11 │   tags              = local.all_tags
+  12 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:14-18
+   via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+  14 ┌ resource "aws_cloudwatch_log_group" "plan" {
+  15 │   name              = "/codebuild/${var.project_name}-plan"
+  16 │   retention_in_days = var.log_retention_days
+  17 │   tags              = local.all_tags
+  18 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:20-24
+   via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+  20 ┌ resource "aws_cloudwatch_log_group" "deploy" {
+  21 │   name              = "/codebuild/${var.project_name}-deploy"
+  22 │   retention_in_days = var.log_retention_days
+  23 │   tags              = local.all_tags
+  24 └ }
+────────────────────────────────────────
+
+
+AWS-0017 (LOW): Log group is not encrypted.
+════════════════════════════════════════
+CloudWatch log groups are encrypted by default, however, to get the full benefit of controlling key rotation and other KMS aspects a KMS CMK should be used.
+
+
+See https://avd.aquasec.com/misconfig/aws-0017
+────────────────────────────────────────
+ main.tf:26-30
+   via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+  26 ┌ resource "aws_cloudwatch_log_group" "test" {
+  27 │   name              = "/codebuild/${var.project_name}-test"
+  28 │   retention_in_days = var.log_retention_days
+  29 │   tags              = local.all_tags
+  30 └ }
+────────────────────────────────────────
+
+
+
+storage.tf (terraform)
+======================
+Tests: 18 (SUCCESSES: 0, FAILURES: 18)
+Failures: 18 (LOW: 7, MEDIUM: 0, HIGH: 11, CRITICAL: 0)
+
+AWS-0089 (LOW): Bucket has logging disabled
+════════════════════════════════════════
+Ensures S3 bucket logging is enabled for S3 buckets
+
+See https://avd.aquasec.com/misconfig/aws-0089
+────────────────────────────────────────
+ storage.tf:5-9
+   via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+   5 ┌ resource "aws_s3_bucket" "state" {
+   6 │   count  = var.create_state_bucket ? 1 : 0
+   7 │   bucket = "${var.project_name}-terraform-state-${data.aws_caller_identity.current.account_id}"
+   8 │   tags   = local.all_tags
+   9 └ }
+────────────────────────────────────────
+
+
+AWS-0089 (LOW): Bucket has logging disabled
+════════════════════════════════════════
+Ensures S3 bucket logging is enabled for S3 buckets
+
+See https://avd.aquasec.com/misconfig/aws-0089
+────────────────────────────────────────
+ storage.tf:77-80
+   via examples/complete/main.tf:16-48 (module.pipeline)
+────────────────────────────────────────
+  77 ┌ resource "aws_s3_bucket" "artifacts" {
+  78 │   bucket = "${var.project_name}-pipeline-artifacts-${data.aws_caller_identity.current.account_id}"
+  79 │   tags   = local.all_tags
+  80 └ }
+────────────────────────────────────────
+
+
+AWS-0089 (LOW): Bucket has logging disabled
+════════════════════════════════════════
+Ensures S3 bucket logging is enabled for S3 buckets
+
+See https://avd.aquasec.com/misconfig/aws-0089
+────────────────────────────────────────
+ storage.tf:77-80
+   via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+  77 ┌ resource "aws_s3_bucket" "artifacts" {
+  78 │   bucket = "${var.project_name}-pipeline-artifacts-${data.aws_caller_identity.current.account_id}"
+  79 │   tags   = local.all_tags
+  80 └ }
+────────────────────────────────────────
+
+
+AWS-0089 (LOW): Bucket has logging disabled
+════════════════════════════════════════
+Ensures S3 bucket logging is enabled for S3 buckets
+
+See https://avd.aquasec.com/misconfig/aws-0089
+────────────────────────────────────────
+ storage.tf:5-9
+   via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+   5 ┌ resource "aws_s3_bucket" "state" {
+   6 │   count  = var.create_state_bucket ? 1 : 0
+   7 │   bucket = "${var.project_name}-terraform-state-${data.aws_caller_identity.current.account_id}"
+   8 │   tags   = local.all_tags
+   9 └ }
+────────────────────────────────────────
+
+
+AWS-0089 (LOW): Bucket has logging disabled
+════════════════════════════════════════
+Ensures S3 bucket logging is enabled for S3 buckets
+
+See https://avd.aquasec.com/misconfig/aws-0089
+────────────────────────────────────────
+ storage.tf:77-80
+   via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+  77 ┌ resource "aws_s3_bucket" "artifacts" {
+  78 │   bucket = "${var.project_name}-pipeline-artifacts-${data.aws_caller_identity.current.account_id}"
+  79 │   tags   = local.all_tags
+  80 └ }
+────────────────────────────────────────
+
+
+AWS-0089 (LOW): Bucket has logging disabled
+════════════════════════════════════════
+Ensures S3 bucket logging is enabled for S3 buckets
+
+See https://avd.aquasec.com/misconfig/aws-0089
+────────────────────────────────────────
+ storage.tf:5-9
+   via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+   5 ┌ resource "aws_s3_bucket" "state" {
+   6 │   count  = var.create_state_bucket ? 1 : 0
+   7 │   bucket = "${var.project_name}-terraform-state-${data.aws_caller_identity.current.account_id}"
+   8 │   tags   = local.all_tags
+   9 └ }
+────────────────────────────────────────
+
+
+AWS-0089 (LOW): Bucket has logging disabled
+════════════════════════════════════════
+Ensures S3 bucket logging is enabled for S3 buckets
+
+See https://avd.aquasec.com/misconfig/aws-0089
+────────────────────────────────────────
+ storage.tf:77-80
+   via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+  77 ┌ resource "aws_s3_bucket" "artifacts" {
+  78 │   bucket = "${var.project_name}-pipeline-artifacts-${data.aws_caller_identity.current.account_id}"
+  79 │   tags   = local.all_tags
+  80 └ }
+────────────────────────────────────────
+
+
+AWS-0132 (HIGH): Bucket does not encrypt data with a customer managed key.
+════════════════════════════════════════
+Encryption using AWS keys provides protection for your S3 buckets. To gain greater control over encryption, such as key rotation, access policies, and auditability, use customer managed keys (CMKs) with SSE-KMS.
+Note that SSE-KMS is not supported for S3 server access logging destination buckets; in such cases, use SSE-S3 instead.
+
+
+See https://avd.aquasec.com/misconfig/aws-0132
+────────────────────────────────────────
+ storage.tf:20-29
+   via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+  20 ┌ resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
+  21 │   count  = var.create_state_bucket ? 1 : 0
+  22 │   bucket = aws_s3_bucket.state[0].id
+  23 │ 
+  24 │   rule {
+  25 │     apply_server_side_encryption_by_default {
+  26 │       sse_algorithm = "AES256"
+  27 │     }
+  28 │   }
+  29 └ }
+────────────────────────────────────────
+
+
+AWS-0132 (HIGH): Bucket does not encrypt data with a customer managed key.
+════════════════════════════════════════
+Encryption using AWS keys provides protection for your S3 buckets. To gain greater control over encryption, such as key rotation, access policies, and auditability, use customer managed keys (CMKs) with SSE-KMS.
+Note that SSE-KMS is not supported for S3 server access logging destination buckets; in such cases, use SSE-S3 instead.
+
+
+See https://avd.aquasec.com/misconfig/aws-0132
+────────────────────────────────────────
+ storage.tf:90-98
+   via examples/complete/main.tf:16-48 (module.pipeline)
+────────────────────────────────────────
+  90 ┌ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
+  91 │   bucket = aws_s3_bucket.artifacts.id
+  92 │ 
+  93 │   rule {
+  94 │     apply_server_side_encryption_by_default {
+  95 │       sse_algorithm = "AES256"
+  96 │     }
+  97 │   }
+  98 └ }
+────────────────────────────────────────
+
+
+AWS-0132 (HIGH): Bucket does not encrypt data with a customer managed key.
+════════════════════════════════════════
+Encryption using AWS keys provides protection for your S3 buckets. To gain greater control over encryption, such as key rotation, access policies, and auditability, use customer managed keys (CMKs) with SSE-KMS.
+Note that SSE-KMS is not supported for S3 server access logging destination buckets; in such cases, use SSE-S3 instead.
+
+
+See https://avd.aquasec.com/misconfig/aws-0132
+────────────────────────────────────────
+ storage.tf:90-98
+   via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+  90 ┌ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
+  91 │   bucket = aws_s3_bucket.artifacts.id
+  92 │ 
+  93 │   rule {
+  94 │     apply_server_side_encryption_by_default {
+  95 │       sse_algorithm = "AES256"
+  96 │     }
+  97 │   }
+  98 └ }
+────────────────────────────────────────
+
+
+AWS-0132 (HIGH): Bucket does not encrypt data with a customer managed key.
+════════════════════════════════════════
+Encryption using AWS keys provides protection for your S3 buckets. To gain greater control over encryption, such as key rotation, access policies, and auditability, use customer managed keys (CMKs) with SSE-KMS.
+Note that SSE-KMS is not supported for S3 server access logging destination buckets; in such cases, use SSE-S3 instead.
+
+
+See https://avd.aquasec.com/misconfig/aws-0132
+────────────────────────────────────────
+ storage.tf:90-98
+   via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+  90 ┌ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
+  91 │   bucket = aws_s3_bucket.artifacts.id
+  92 │ 
+  93 │   rule {
+  94 │     apply_server_side_encryption_by_default {
+  95 │       sse_algorithm = "AES256"
+  96 │     }
+  97 │   }
+  98 └ }
+────────────────────────────────────────
+
+
+AWS-0132 (HIGH): Bucket does not encrypt data with a customer managed key.
+════════════════════════════════════════
+Encryption using AWS keys provides protection for your S3 buckets. To gain greater control over encryption, such as key rotation, access policies, and auditability, use customer managed keys (CMKs) with SSE-KMS.
+Note that SSE-KMS is not supported for S3 server access logging destination buckets; in such cases, use SSE-S3 instead.
+
+
+See https://avd.aquasec.com/misconfig/aws-0132
+────────────────────────────────────────
+ storage.tf:20-29
+   via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+  20 ┌ resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
+  21 │   count  = var.create_state_bucket ? 1 : 0
+  22 │   bucket = aws_s3_bucket.state[0].id
+  23 │ 
+  24 │   rule {
+  25 │     apply_server_side_encryption_by_default {
+  26 │       sse_algorithm = "AES256"
+  27 │     }
+  28 │   }
+  29 └ }
+────────────────────────────────────────
+
+
+AWS-0132 (HIGH): Bucket does not encrypt data with a customer managed key.
+════════════════════════════════════════
+Encryption using AWS keys provides protection for your S3 buckets. To gain greater control over encryption, such as key rotation, access policies, and auditability, use customer managed keys (CMKs) with SSE-KMS.
+Note that SSE-KMS is not supported for S3 server access logging destination buckets; in such cases, use SSE-S3 instead.
+
+
+See https://avd.aquasec.com/misconfig/aws-0132
+────────────────────────────────────────
+ storage.tf:90-98
+   via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+  90 ┌ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
+  91 │   bucket = aws_s3_bucket.artifacts.id
+  92 │ 
+  93 │   rule {
+  94 │     apply_server_side_encryption_by_default {
+  95 │       sse_algorithm = "AES256"
+  96 │     }
+  97 │   }
+  98 └ }
+────────────────────────────────────────
+
+
+AWS-0132 (HIGH): Bucket does not encrypt data with a customer managed key.
+════════════════════════════════════════
+Encryption using AWS keys provides protection for your S3 buckets. To gain greater control over encryption, such as key rotation, access policies, and auditability, use customer managed keys (CMKs) with SSE-KMS.
+Note that SSE-KMS is not supported for S3 server access logging destination buckets; in such cases, use SSE-S3 instead.
+
+
+See https://avd.aquasec.com/misconfig/aws-0132
+────────────────────────────────────────
+ storage.tf:20-29
+   via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+  20 ┌ resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
+  21 │   count  = var.create_state_bucket ? 1 : 0
+  22 │   bucket = aws_s3_bucket.state[0].id
+  23 │ 
+  24 │   rule {
+  25 │     apply_server_side_encryption_by_default {
+  26 │       sse_algorithm = "AES256"
+  27 │     }
+  28 │   }
+  29 └ }
+────────────────────────────────────────
+
+
+AWS-0136 (HIGH): Topic encryption does not use a customer managed key.
+════════════════════════════════════════
+Topics should be encrypted with customer managed KMS keys and not default AWS managed keys, in order to allow granular key management.
+
+
+See https://avd.aquasec.com/misconfig/aws-0136
+────────────────────────────────────────
+ storage.tf:153
+   via storage.tf:151-155 (aws_sns_topic.approvals)
+    via examples/minimal/main.tf:16-25 (module.pipeline)
+────────────────────────────────────────
+ 151   resource "aws_sns_topic" "approvals" {
+ 152     name              = "${var.project_name}-pipeline-approvals"
+ 153 [   kms_master_key_id = "alias/aws/sns"
+ 154     tags              = local.all_tags
+ 155   }
+────────────────────────────────────────
+
+
+AWS-0136 (HIGH): Topic encryption does not use a customer managed key.
+════════════════════════════════════════
+Topics should be encrypted with customer managed KMS keys and not default AWS managed keys, in order to allow granular key management.
+
+
+See https://avd.aquasec.com/misconfig/aws-0136
+────────────────────────────────────────
+ storage.tf:153
+   via storage.tf:151-155 (aws_sns_topic.approvals)
+    via examples/opentofu/main.tf:16-29 (module.pipeline)
+────────────────────────────────────────
+ 151   resource "aws_sns_topic" "approvals" {
+ 152     name              = "${var.project_name}-pipeline-approvals"
+ 153 [   kms_master_key_id = "alias/aws/sns"
+ 154     tags              = local.all_tags
+ 155   }
+────────────────────────────────────────
+
+
+AWS-0136 (HIGH): Topic encryption does not use a customer managed key.
+════════════════════════════════════════
+Topics should be encrypted with customer managed KMS keys and not default AWS managed keys, in order to allow granular key management.
+
+
+See https://avd.aquasec.com/misconfig/aws-0136
+────────────────────────────────────────
+ storage.tf:153
+   via storage.tf:151-155 (aws_sns_topic.approvals)
+    via tests/e2e/main.tf:6-26 (module.pipeline)
+────────────────────────────────────────
+ 151   resource "aws_sns_topic" "approvals" {
+ 152     name              = "${var.project_name}-pipeline-approvals"
+ 153 [   kms_master_key_id = "alias/aws/sns"
+ 154     tags              = local.all_tags
+ 155   }
+────────────────────────────────────────
+
+
+AWS-0136 (HIGH): Topic encryption does not use a customer managed key.
+════════════════════════════════════════
+Topics should be encrypted with customer managed KMS keys and not default AWS managed keys, in order to allow granular key management.
+
+
+See https://avd.aquasec.com/misconfig/aws-0136
+────────────────────────────────────────
+ storage.tf:153
+   via storage.tf:151-155 (aws_sns_topic.approvals)
+    via examples/complete/main.tf:16-48 (module.pipeline)
+────────────────────────────────────────
+ 151   resource "aws_sns_topic" "approvals" {
+ 152     name              = "${var.project_name}-pipeline-approvals"
+ 153 [   kms_master_key_id = "alias/aws/sns"
+ 154     tags              = local.all_tags
+ 155   }
+────────────────────────────────────────
+
+
