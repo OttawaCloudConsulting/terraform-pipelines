@@ -2,7 +2,7 @@
 set -e  # Exit on error
 
 # AWS Profile for deploying to the Automation Account.
-export AWS_PROFILE=aft-automation
+export AWS_PROFILE=automation
 
 # Directory for E2E test root module
 E2E_DIR="tests/e2e"

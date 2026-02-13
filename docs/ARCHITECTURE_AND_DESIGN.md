@@ -8,10 +8,20 @@ The authoritative requirements are in `prd.md`. The MVP scope is defined in `doc
 
 ## Architecture Diagram
 
+### Three-Account Model
+
+![Three-Account Model](diagrams/three-account-model.png)
+
+### Pipeline Stages
+
+![Pipeline Stages](diagrams/pipeline-stages.png)
+
+### Detailed Resource Layout
+
 ```
 ┌────────────────────────────────────────────────────────────────
 ──────────────┐
-│                        AUTOMATION ACCOUNT (389068787156)                      │
+│                        AUTOMATION ACCOUNT (111111111111)                      │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │            AWS CodePipeline V2: <project_name>-pipeline                │  │
@@ -73,7 +83,7 @@ The authoritative requirements are in `prd.md`. The MVP scope is defined in `doc
          ▼                            ▼                      ▼
     ┌──────────┐            ┌─────────────────┐    ┌─────────────────────┐
     │  GitHub   │            │ DEV TARGET ACCT  │    │ PROD TARGET ACCT     │
-    │           │            │ (914089393341)   │    │ (264675080489)       │
+    │           │            │ (222222222222)   │    │ (333333333333)       │
     │ OttawaCl- │            │                  │    │                      │
     │ oudCons-  │            │ ┌──────────────┐ │    │ ┌──────────────────┐ │
     │ ulting/   │            │ │ Deployment   │ │    │ │ Deployment       │ │
@@ -92,6 +102,14 @@ The authoritative requirements are in `prd.md`. The MVP scope is defined in `doc
 
 ## Pipeline Data Flow
 
+### Sequence Diagram
+
+![Pipeline Sequence Diagram](diagrams/pipeline-sequence-flow.png)
+
+### Data Flow Overview
+
+![Pipeline Data Flow](diagrams/pipeline-sequence.png)
+
 ### Stage-by-Stage Flow
 
 1. **Source** — CodePipeline pulls repo via CodeStar Connection on branch push. Source artifacts stored in artifact bucket.
@@ -106,13 +124,7 @@ The authoritative requirements are in `prd.md`. The MVP scope is defined in `doc
 
 ### Artifact Flow Between Stages
 
-```
-Source Artifact ──► Pre-Build (read-only)
-Source Artifact ──► Plan (read, produces plan artifact for review only)
-Source Artifact ──► Deploy DEV (re-init + apply from source)
-Source Artifact ──► Deploy PROD (re-init + apply from source)
-Source Artifact ──► Test DEV / Test PROD (read-only)
-```
+![Artifact Flow](diagrams/artifact-flow.png)
 
 **Note:** Both Deploy DEV and Deploy PROD re-run `terraform init` and `terraform apply` from source rather than reusing the plan artifact. This is because DEV and PROD use different state files, different backend keys, and potentially different variable values. The Plan stage output is informational — it provides a preview for the optional review gate and produces the checkov security scan report, but is not consumed by the deploy stages.
 
@@ -227,6 +239,10 @@ The following security controls are implemented based on [AWS CodePipeline Secur
 | CloudWatch Logs | Encrypted by default | AWS-managed | CloudWatch Logs encrypts all log data |
 | CodeBuild build logs | Encrypted in transit | TLS | All API calls use HTTPS/TLS |
 
+### Cross-Account Credential Flow
+
+![Cross-Account Credential Flow](diagrams/cross-account-credentials.png)
+
 ### Access Control
 
 - **S3 Bucket Policies:** Both buckets deny non-SSL requests (`aws:SecureTransport = false`) and have S3 Block Public Access enabled (all four settings). Follows [AWS Prescriptive Guidance: S3 Encryption Best Practices](https://docs.aws.amazon.com/prescriptive-guidance/latest/encryption-best-practices/s3.html).
@@ -329,6 +345,14 @@ terraform-pipelines/               # Module root
 ├── docs/
 │   ├── ARCHITECTURE_AND_DESIGN.md  # This file
 │   ├── codepipeline-mvp-statement.md
+│   ├── diagrams/                    # Architecture diagrams (PNG)
+│   │   ├── three-account-model.png      # AWS: account layout + resources
+│   │   ├── pipeline-stages.png          # AWS: 9-stage pipeline flow
+│   │   ├── pipeline-sequence.png        # AWS: data flow overview
+│   │   ├── pipeline-sequence-flow.png   # Mermaid: temporal sequence diagram
+│   │   ├── artifact-flow.png            # Mermaid: source artifact fan-out
+│   │   ├── resource-dependencies.png    # AWS: Terraform creation order
+│   │   └── cross-account-credentials.png # AWS: STS AssumeRole flow
 │   ├── FEATURES_1-7.md
 │   ├── FEATURE_8.md
 │   ├── FEATURE_9.md
@@ -462,9 +486,9 @@ The following accounts and repository are used for end-to-end validation of the 
 
 | Account | Account ID | CLI Profile | Role |
 |---------|-----------|-------------|------|
-| Automation | 389068787156 | `aft-automation` | Pipeline host — all pipeline resources deployed here |
-| DEV Target | 914089393341 | `developer-account` | DEV deployment target |
-| PROD Target | 264675080489 | `network` | PROD deployment target |
+| Automation | 111111111111 | `automation` | Pipeline host — all pipeline resources deployed here |
+| DEV Target | 222222222222 | `developer-account` | DEV deployment target |
+| PROD Target | 333333333333 | `production-account` | PROD deployment target |
 
 **Test Repository:** `OttawaCloudConsulting/terraform-test`, branch `s3-bucket`
 
@@ -473,12 +497,18 @@ The following accounts and repository are used for end-to-end validation of the 
 
 **Manual Prerequisites Before E2E Test:**
 
-1. Create deployment roles in DEV (914089393341) and PROD (264675080489) accounts
-2. Deployment roles must trust `CodeBuild-<project>-ServiceRole` in Automation Account (389068787156)
+1. Create deployment roles in DEV (222222222222) and PROD (333333333333) accounts
+2. Deployment roles must trust `CodeBuild-<project>-ServiceRole` in Automation Account (111111111111)
 3. Trust policy must include `aws:PrincipalOrgID` condition
 4. See `docs/codepipeline-mvp-statement.md` § Target Account Deployment Role Requirements for full details
 
 ## Dependency Graph
+
+### Resource Dependency Graph
+
+![Resource Dependency Graph](diagrams/resource-dependencies.png)
+
+### Dependency Detail
 
 ```
 versions.tf (providers, version constraints)
