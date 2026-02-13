@@ -7,8 +7,8 @@ variable "project_name" {
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{1,32}[a-z0-9]$", var.project_name))
-    error_message = "project_name must be 3-34 characters, start with a lowercase letter, end with a letter or number, and contain only lowercase letters, numbers, and hyphens."
+    condition     = can(regex("^[a-z][a-z0-9-]{1,28}[a-z0-9]$", var.project_name))
+    error_message = "project_name must be 3-30 characters, start with a lowercase letter, end with a letter or number, and contain only lowercase letters, numbers, and hyphens."
   }
 
   validation {
@@ -212,4 +212,20 @@ variable "tags" {
   description = "Additional tags merged with module-managed tags and applied to all resources."
   type        = map(string)
   default     = {}
+}
+
+# -----------------------------------------------------------------------------
+# IAM Extensibility — Variant-owned resources
+# -----------------------------------------------------------------------------
+
+variable "additional_codebuild_project_arns" {
+  description = "Additional CodeBuild project ARNs to include in the CodePipeline IAM policy. Used by variants that create their own CodeBuild projects (e.g., destroy)."
+  type        = list(string)
+  default     = []
+}
+
+variable "additional_log_group_arns" {
+  description = "Additional CloudWatch log group ARNs (with :* suffix) to include in the CodeBuild IAM policy. Used by variants that create their own log groups."
+  type        = list(string)
+  default     = []
 }

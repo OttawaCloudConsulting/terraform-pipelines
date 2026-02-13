@@ -1,6 +1,15 @@
-# Terraform Pipeline Module
+# Terraform Pipeline Modules
 
-A reusable Terraform module that provisions AWS CodePipeline V2 + CodeBuild CI/CD pipelines for deploying Terraform (or OpenTofu) infrastructure across a multi-account AWS Control Tower environment. Each module invocation creates a complete, isolated pipeline for one Terraform project.
+A family of reusable Terraform modules that provision AWS CodePipeline V2 + CodeBuild CI/CD pipelines for deploying Terraform (or OpenTofu) infrastructure across a multi-account AWS Control Tower environment. Each module invocation creates a complete, isolated pipeline for one Terraform project.
+
+## Variants
+
+| Variant | Module Source | Stages | Use Case |
+|---------|-------------|--------|----------|
+| **Default** | `modules/default/` | 9 | Standard cross-account DEV/PROD deployment |
+| **Default-DevDestroy** | `modules/default-dev-destroy/` | 10-11 | Cross-account with ephemeral DEV teardown |
+
+The **Default** variant also supports single-account deployment when `dev_account_id == prod_account_id`.
 
 ## Architecture
 
@@ -8,245 +17,189 @@ A reusable Terraform module that provisions AWS CodePipeline V2 + CodeBuild CI/C
 
 | Account | Role | Description |
 |---------|------|-------------|
-| Automation | Pipeline host | CodePipeline, CodeBuild, S3 state/artifacts, SNS, IAM service roles |
+| Automation | Pipeline host | CodePipeline, CodeBuild, S3, SNS, IAM service roles |
 | DEV Target | Deployment target | Receives DEV deployments via cross-account IAM role assumption |
 | PROD Target | Deployment target | Receives PROD deployments via cross-account IAM role assumption |
 
-**Pipeline stages (9 total):**
+**Shared Core + Overlay:** All variants share an internal `modules/core/` module that provides IAM, S3, SNS, CodeBuild, and CloudWatch resources. Each variant composes the core differently and owns its own CodePipeline stage definitions.
 
-| # | Stage | Type | Description |
-|---|-------|------|-------------|
-| 1 | Source | CodeStar | GitHub via CodeStar Connection |
-| 2 | Pre-Build | CodeBuild | Runs `cicd/prebuild/main.sh` (developer-managed) |
-| 3 | Plan | CodeBuild | `terraform plan` + checkov security scan |
-| 4 | Review | Manual Approval | Optional gate (`enable_review_gate = true`) |
-| 5 | Deploy DEV | CodeBuild | `terraform apply` via cross-account role |
-| 6 | Test DEV | CodeBuild | Runs `cicd/dev/smoke-test.sh` (developer-managed) |
-| 7 | Approval | Manual Approval | Mandatory, SNS notification to subscribers |
-| 8 | Deploy PROD | CodeBuild | `terraform apply` via cross-account role |
-| 9 | Test PROD | CodeBuild | Runs `cicd/prod/smoke-test.sh` (developer-managed) |
+See `docs/ARCHITECTURE_AND_DESIGN.md` for the full architecture reference.
 
-## Usage
+## Quick Start
 
-### Minimal
+### Default Variant (Minimal)
 
 ```hcl
 module "pipeline" {
-  source = "path/to/terraform-pipelines"
+  source = "git::https://github.com/org/terraform-pipelines.git//modules/default"
 
   project_name             = "my-project"
   github_repo              = "my-org/my-project"
   dev_account_id           = "111111111111"
-  dev_deployment_role_arn  = "arn:aws:iam::111111111111:role/org/org-default-deployment-role"
+  dev_deployment_role_arn  = "arn:aws:iam::111111111111:role/deployment-role"
   prod_account_id          = "222222222222"
-  prod_deployment_role_arn = "arn:aws:iam::222222222222:role/org/org-default-deployment-role"
+  prod_deployment_role_arn = "arn:aws:iam::222222222222:role/deployment-role"
 }
 ```
 
-### Complete
+### Default-DevDestroy Variant
 
 ```hcl
 module "pipeline" {
-  source = "path/to/terraform-pipelines"
+  source = "git::https://github.com/org/terraform-pipelines.git//modules/default-dev-destroy"
 
   project_name             = "my-project"
   github_repo              = "my-org/my-project"
-  github_branch            = "main"
   dev_account_id           = "111111111111"
-  dev_deployment_role_arn  = "arn:aws:iam::111111111111:role/org/org-default-deployment-role"
+  dev_deployment_role_arn  = "arn:aws:iam::111111111111:role/deployment-role"
   prod_account_id          = "222222222222"
-  prod_deployment_role_arn = "arn:aws:iam::222222222222:role/org/org-default-deployment-role"
+  prod_deployment_role_arn = "arn:aws:iam::222222222222:role/deployment-role"
 
-  iac_runtime             = "terraform"
-  iac_version             = "1.11.0"
-  create_state_bucket     = true
-  enable_review_gate      = true
-  sns_subscribers         = ["team@example.com"]
-  codebuild_compute_type  = "BUILD_GENERAL1_SMALL"
-  codebuild_image         = "aws/codebuild/amazonlinux-x86_64-standard:5.0"
-  codebuild_timeout_minutes = 60
-  log_retention_days      = 30
-  artifact_retention_days = 30
-
-  tags = {
-    team        = "platform"
-    cost-center = "12345"
-  }
+  enable_destroy_approval = true  # Default — require approval before DEV destroy
 }
 ```
 
-See `examples/` for runnable configurations: `minimal/`, `complete/`, and `opentofu/`.
+### Single-Account Deployment
+
+```hcl
+module "pipeline" {
+  source = "git::https://github.com/org/terraform-pipelines.git//modules/default"
+
+  project_name             = "my-project"
+  github_repo              = "my-org/my-project"
+  dev_account_id           = "111111111111"
+  dev_deployment_role_arn  = "arn:aws:iam::111111111111:role/deployment-role"
+  prod_account_id          = "111111111111"       # Same account
+  prod_deployment_role_arn = "arn:aws:iam::111111111111:role/deployment-role"
+}
+```
+
+See `examples/` for runnable configurations.
 
 ## Prerequisites
 
 1. **Terraform >= 1.11** (required for native S3 state locking with `use_lockfile`)
 2. **AWS provider ~> 6.0**
-3. **Deployment roles** must pre-exist in DEV and PROD target accounts
-   - Must trust the CodeBuild service role from the Automation Account
-   - See `docs/working/CROSS_ACCOUNT_ROLES.md` for trust policy templates
+3. **Deployment roles** must pre-exist in DEV and PROD target accounts — they must trust the CodeBuild service role from the Automation Account
 4. **CodeStar Connection** requires one-time manual OAuth authorization in AWS Console after creation
 
 ## Variables
 
-### Required
+### Required (All Variants)
 
 | Name | Type | Description |
 |------|------|-------------|
-| `project_name` | `string` | Name of the Terraform project (3-34 chars, lowercase, no `--`). Used in all resource names. |
+| `project_name` | `string` | Name of the Terraform project (3-30 chars, lowercase, no `--`). |
 | `github_repo` | `string` | GitHub repository in `org/repo` format. |
-| `dev_account_id` | `string` | AWS Account ID for the DEV target environment (12-digit). |
-| `dev_deployment_role_arn` | `string` | IAM role ARN in DEV account for cross-account deployment. |
-| `prod_account_id` | `string` | AWS Account ID for the PROD target environment (12-digit). |
-| `prod_deployment_role_arn` | `string` | IAM role ARN in PROD account for cross-account deployment. |
+| `dev_account_id` | `string` | 12-digit AWS Account ID for DEV. |
+| `dev_deployment_role_arn` | `string` | IAM role ARN in DEV account. |
+| `prod_account_id` | `string` | 12-digit AWS Account ID for PROD. |
+| `prod_deployment_role_arn` | `string` | IAM role ARN in PROD account. |
 
-### Optional
+### Optional (All Variants)
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `github_branch` | `string` | `"main"` | Branch to trigger pipeline on push. |
-| `iac_runtime` | `string` | `"terraform"` | IaC tool: `terraform` or `opentofu`. |
-| `iac_version` | `string` | `"latest"` | Version of Terraform/OpenTofu to install. |
-| `codestar_connection_arn` | `string` | `""` | Existing CodeStar Connection ARN. Empty creates new. |
-| `create_state_bucket` | `bool` | `true` | Whether to create the S3 state bucket. |
-| `state_bucket` | `string` | `""` | Existing bucket name (required when `create_state_bucket = false`). |
-| `state_key_prefix` | `string` | `""` | S3 key prefix for state files. Defaults to `project_name`. |
-| `sns_subscribers` | `list(string)` | `[]` | Email addresses for approval notifications. |
-| `enable_review_gate` | `bool` | `false` | Include optional review approval stage. |
+| `github_branch` | `string` | `"main"` | Branch to trigger pipeline. |
+| `iac_runtime` | `string` | `"terraform"` | `terraform` or `opentofu`. |
+| `iac_version` | `string` | `"latest"` | Version of IaC tool. |
+| `codestar_connection_arn` | `string` | `""` | Existing CodeStar ARN. Empty creates new. |
+| `create_state_bucket` | `bool` | `true` | Create S3 state bucket. |
+| `state_bucket` | `string` | `""` | Existing bucket (required when `create_state_bucket = false`). |
+| `state_key_prefix` | `string` | `""` | S3 key prefix. Defaults to `project_name`. |
+| `sns_subscribers` | `list(string)` | `[]` | Email addresses for approvals. |
+| `enable_review_gate` | `bool` | `false` | Optional review approval stage. |
 | `codebuild_compute_type` | `string` | `"BUILD_GENERAL1_SMALL"` | CodeBuild compute type. |
-| `codebuild_image` | `string` | `"aws/codebuild/amazonlinux-x86_64-standard:5.0"` | CodeBuild managed image (`aws/codebuild/` prefix required). |
-| `checkov_soft_fail` | `bool` | `false` | When true, checkov findings do not fail the pipeline. |
-| `codebuild_timeout_minutes` | `number` | `60` | Build timeout (5-480 minutes). |
-| `logging_bucket` | `string` | `""` | Existing S3 bucket for access logs. Empty disables logging. |
-| `logging_prefix` | `string` | `""` | S3 key prefix for access logs. Empty uses auto-generated prefix. |
-| `log_retention_days` | `number` | `30` | CloudWatch log retention in days. For compliance, set to 365. |
-| `artifact_retention_days` | `number` | `30` | S3 lifecycle expiry for artifacts (1-365 days). |
-| `tags` | `map(string)` | `{}` | Additional tags merged with module-managed tags. |
+| `codebuild_image` | `string` | `"aws/codebuild/amazonlinux-x86_64-standard:5.0"` | CodeBuild image. |
+| `checkov_soft_fail` | `bool` | `false` | Checkov as warnings only. |
+| `codebuild_timeout_minutes` | `number` | `60` | Build timeout (5-480 min). |
+| `logging_bucket` | `string` | `""` | S3 bucket for access logs. |
+| `logging_prefix` | `string` | `""` | S3 key prefix for access logs. |
+| `log_retention_days` | `number` | `30` | CloudWatch retention. |
+| `artifact_retention_days` | `number` | `30` | Artifact lifecycle (1-365). |
+| `tags` | `map(string)` | `{}` | Additional tags. |
 
-## Outputs
+### Variant-Specific (Default-DevDestroy)
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `enable_destroy_approval` | `bool` | `true` | Require manual approval before DEV destroy. |
+
+## Outputs (All Variants)
 
 | Name | Description |
 |------|-------------|
 | `pipeline_arn` | ARN of the CodePipeline. |
 | `pipeline_url` | AWS Console URL for the pipeline. |
-| `codebuild_project_names` | Map of CodeBuild project names (prebuild, plan, deploy, test). |
+| `codebuild_project_names` | Map of CodeBuild project names (`prebuild`, `plan`, `deploy`, `test`; DevDestroy adds `destroy`). |
 | `codebuild_service_role_arn` | ARN of the CodeBuild service role. |
 | `codepipeline_service_role_arn` | ARN of the CodePipeline service role. |
 | `sns_topic_arn` | ARN of the approval SNS topic. |
-| `artifact_bucket_name` | Name of the pipeline artifact bucket. |
-| `state_bucket_name` | Name of the state bucket (created or existing). |
+| `artifact_bucket_name` | Name of the artifact bucket. |
+| `state_bucket_name` | Name of the state bucket. |
 | `codestar_connection_arn` | ARN of the CodeStar Connection. |
-| `dev_account_id` | DEV target account ID (pass-through). |
-| `prod_account_id` | PROD target account ID (pass-through). |
+| `dev_account_id` | DEV account ID (pass-through). |
+| `prod_account_id` | PROD account ID (pass-through). |
 
-## Resources Created
+## Migration from Monolithic Module
 
-| Resource | Count | Description |
-|----------|-------|-------------|
-| `aws_codepipeline` | 1 | Pipeline V2 with 9 stages |
-| `aws_codebuild_project` | 4 | prebuild, plan, deploy, test |
-| `aws_cloudwatch_log_group` | 4 | One per CodeBuild project |
-| `aws_iam_role` | 2 | CodePipeline + CodeBuild service roles |
-| `aws_iam_role_policy` | 2 | Inline policies for each role |
-| `aws_s3_bucket` + config | 2 | State (conditional) + artifacts |
-| `aws_sns_topic` | 1 | Approval notifications |
-| `aws_codestarconnections_connection` | 0-1 | GitHub connection (conditional) |
-| `aws_sns_topic_subscription` | 0-N | Email subscriptions |
+If you previously used the root module directly, update your `source` to `modules/default/`:
 
-Total: ~27 resources (with state bucket and CodeStar connection created).
+```hcl
+# Before
+module "pipeline" {
+  source = "path/to/terraform-pipelines"
+  ...
+}
 
-## Consumer Repository Structure
-
-The pipeline expects this layout in the consumer's GitHub repository:
-
-```
-my-terraform-project/
-├── main.tf                        # Terraform configuration
-├── variables.tf
-├── outputs.tf
-├── environments/
-│   ├── dev.tfvars                 # Optional — DEV variable values
-│   └── prod.tfvars                # Optional — PROD variable values
-└── cicd/
-    ├── prebuild/
-    │   └── main.sh                # Optional — pre-build validation script
-    ├── dev/
-    │   └── smoke-test.sh          # Optional — DEV smoke tests
-    └── prod/
-        └── smoke-test.sh          # Optional — PROD smoke tests
+# After
+module "pipeline" {
+  source = "path/to/terraform-pipelines//modules/default"
+  ...
+}
 ```
 
-All `cicd/` scripts and `environments/*.tfvars` files are optional. The pipeline gracefully skips missing files.
+The Default variant includes `moved` blocks for all resources, so `terraform plan` will show moves (not destroy/create). No resource recreation occurs.
 
-## Cross-Account Credential Flow
-
-```
-CodeBuild Service Role (Automation Account)
-    │
-    ├── sts:AssumeRole ──► DEV Deployment Role (DEV Account)
-    │                        └── terraform apply (DEV)
-    │
-    └── sts:AssumeRole ──► PROD Deployment Role (PROD Account)
-                             └── terraform apply (PROD)
-```
-
-First-hop assumption only (no role chaining). Deployment roles must trust the CodeBuild service role.
-
-## Project Structure
+## Repository Structure
 
 ```
 terraform-pipelines/
-├── main.tf                         # CodePipeline + CodeBuild projects + log groups
-├── iam.tf                          # IAM roles and policies
-├── storage.tf                      # S3 buckets + SNS topic + subscriptions
-├── codestar.tf                     # CodeStar Connection (conditional)
-├── variables.tf                    # Input variables with validation
-├── outputs.tf                      # Module outputs
-├── locals.tf                       # Computed values
-├── versions.tf                     # required_version, required_providers
-├── buildspecs/                     # CodeBuild buildspec files (inline via file())
-│   ├── prebuild.yml
-│   ├── plan.yml
-│   ├── deploy.yml
-│   └── test.yml
+├── modules/
+│   ├── core/                          # Internal shared module
+│   ├── default/                       # Default variant (9 stages)
+│   └── default-dev-destroy/           # DevDestroy variant (10-11 stages)
 ├── examples/
-│   ├── minimal/                    # Required variables only
-│   ├── complete/                   # All variables with overrides
-│   └── opentofu/                   # OpenTofu runtime
+│   ├── default/
+│   │   ├── minimal/
+│   │   ├── complete/
+│   │   ├── opentofu/
+│   │   └── single-account/
+│   └── default-dev-destroy/
+│       └── minimal/
 ├── tests/
-│   ├── e2e/                        # End-to-end test root module
+│   ├── test-terraform.sh            # Validation + deploy test script
+│   ├── default/                     # Default variant E2E test
 │   │   └── main.tf
-│   └── test-terraform.sh           # Validation and deployment test script
+│   └── default-dev-destroy/         # DevDestroy variant E2E test
+│       └── main.tf
 ├── docs/
-│   ├── ARCHITECTURE_AND_DESIGN.md  # Full architecture reference
-│   ├── codepipeline-mvp-statement.md
-│   ├── diagrams/                    # Architecture diagrams (PNG)
-│   ├── FEATURES_1-7.md
-│   ├── FEATURE_8.md
-│   ├── FEATURE_9.md
-│   ├── FEATURE_10.md
-│   ├── FEATURE_11.md
-│   ├── FEATURE_12.md
-│   ├── FEATURE_13.md
-│   └── working/                    # Cross-account role docs and policies
-├── CHANGELOG.md
+│   ├── ARCHITECTURE_AND_DESIGN.md
+│   ├── shared/
+│   ├── default/
+│   └── default-dev-destroy/
 ├── CLAUDE.md
+├── README.md
+├── CHANGELOG.md
+├── .gitignore
 ├── prd.md
-├── progress.txt
-└── README.md
-```
-
-## Validation
-
-```bash
-terraform init
-terraform fmt -check -recursive
-terraform validate
-tflint
+└── progress.txt
 ```
 
 ## Documentation
 
 - **Architecture:** `docs/ARCHITECTURE_AND_DESIGN.md`
-- **Cross-account roles:** `docs/working/CROSS_ACCOUNT_ROLES.md`
-- **Feature history:** `docs/FEATURES_1-7.md`, `docs/FEATURE_8.md` through `docs/FEATURE_13.md`
+- **Default variant:** `docs/default/`
+- **DevDestroy variant:** `docs/default-dev-destroy/`
+- **Original MVP statement:** `docs/shared/codepipeline-mvp-statement.md`
 - **Changelog:** `CHANGELOG.md`

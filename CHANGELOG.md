@@ -1,5 +1,25 @@
 # Changelog
 
+## [Multi-Variant Restructure] — 2026-02-13
+
+Major restructure from monolithic root module to multi-variant architecture.
+
+**New structure:**
+- `modules/core/` — internal shared module (IAM, S3, SNS, CodeBuild, CloudWatch)
+- `modules/default/` — Default variant (9-stage pipeline, replaces root module)
+- `modules/default-dev-destroy/` — Default-DevDestroy variant (10-11 stages, ephemeral DEV)
+
+**Key changes:**
+- Root-level `.tf` files moved into `modules/core/` and `modules/default/`
+- Buildspecs moved to `modules/core/buildspecs/`
+- Core IAM policies accept `additional_codebuild_project_arns` and `additional_log_group_arns` for variant extensibility
+- Default variant includes `moved` blocks for zero-downtime migration from root module
+- New `enable_destroy_approval` variable (default: `true`) for DevDestroy variant
+- Per-variant examples, tests, and documentation
+- Single-account deployment supported by Default variant (`dev_account_id == prod_account_id`)
+
+**Migration:** Change module source from root to `modules/default/`. No variable changes required. See `docs/default/README.md` for migration guide.
+
 ## [Feature 13] — 2026-02-12
 
 Repository hygiene. Updated `.gitignore` to exclude plan output files (`*.tfplan`, `tfplan.binary`, `tfplan.json`), provider lock files (`.terraform.lock.hcl`), and Claude Code local settings (`.claude/settings.local.json`).

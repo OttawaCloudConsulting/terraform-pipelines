@@ -1,5 +1,7 @@
 # MVP Statement: AWS CodePipeline for Terraform/OpenTofu CI/CD
 
+> **Note:** This is the original pre-implementation design document. The actual implementation includes additional parameters (`create_state_bucket`, `enable_review_gate`, `checkov_soft_fail`, `codebuild_timeout_minutes`, `logging_bucket`, `logging_prefix`, `log_retention_days`, `artifact_retention_days`, `tags`), makes `state_bucket` optional (with `create_state_bucket = true` as default), renames buildspec files from `buildspec-*.yml` to `*.yml`, and treats `cicd/` scripts as optional. See `modules/core/variables.tf` for the authoritative parameter list.
+
 **Prepared for:** Ottawa Cloud Consulting — Architecture & Project Team
 **Date:** February 12, 2026
 **Status:** Draft — Pending Architecture Review
