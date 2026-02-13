@@ -1,0 +1,22 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "=== Pre-Build Stage ==="
+      - 'echo "Project: $PROJECT_NAME"'
+      - 'echo "IaC Runtime: $IAC_RUNTIME"'
+  build:
+    commands:
+      - |
+        set -euo pipefail
+        if [ -f "cicd/prebuild/main.sh" ]; then
+          echo "Running developer pre-build script..."
+          chmod +x cicd/prebuild/main.sh
+          ./cicd/prebuild/main.sh
+        else
+          echo "No cicd/prebuild/main.sh found, skipping."
+        fi
+  post_build:
+    commands:
+      - echo "Pre-build stage complete."

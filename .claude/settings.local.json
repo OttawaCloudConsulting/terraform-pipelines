@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__aws-knowledge-mcp__aws___search_documentation",
+      "mcp__aws-knowledge-mcp__aws___read_documentation",
+      "mcp__awslabs-aws-documentation-mcp-server__read_documentation",
+      "mcp__awslabs-aws-documentation-mcp-server__search_documentation",
+      "Bash(terraform init:*)",
+      "Bash(terraform --version:*)",
+      "Bash(/opt/homebrew/Cellar/terraform/1.14.5/bin/terraform:*)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "awslabs-core-mcp-server",
+    "aws-knowledge-mcp",
+    "awslabs-aws-documentation-mcp-server",
+    "awslabs-diagram-mcp-server",
+    "terraform-mcp-server",
+    "awslabs-terraform-mcp-server",
+    "mermaid-mcp"
+  ]
+}
