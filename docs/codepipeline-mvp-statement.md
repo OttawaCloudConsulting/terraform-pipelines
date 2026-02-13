@@ -5,6 +5,7 @@
 **Status:** Draft — Pending Architecture Review
 **Author:** Claude (AI-Assisted Analysis)
 **Companion Documents:**
+
 - Terraform/OpenTofu CI/CD Pipeline: Technology Comparison
 - Terraform CI/CD Pipeline: Reference Architectures
 

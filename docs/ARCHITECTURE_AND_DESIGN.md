@@ -9,7 +9,8 @@ The authoritative requirements are in `prd.md`. The MVP scope is defined in `doc
 ## Architecture Diagram
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────
+──────────────┐
 │                        AUTOMATION ACCOUNT (389068787156)                      │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
@@ -466,10 +467,12 @@ The following accounts and repository are used for end-to-end validation of the 
 | PROD Target | 264675080489 | `network` | PROD deployment target |
 
 **Test Repository:** `OttawaCloudConsulting/terraform-test`, branch `s3-bucket`
+
 - Deploys a simple S3 bucket without customization or tfvars
 - Validates that the pipeline works with projects that have no `environments/*.tfvars` files
 
 **Manual Prerequisites Before E2E Test:**
+
 1. Create deployment roles in DEV (914089393341) and PROD (264675080489) accounts
 2. Deployment roles must trust `CodeBuild-<project>-ServiceRole` in Automation Account (389068787156)
 3. Trust policy must include `aws:PrincipalOrgID` condition
