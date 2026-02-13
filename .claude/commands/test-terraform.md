@@ -16,42 +16,66 @@ Before running /test-terraform, ensure:
 
 ## Execution Steps
 
-### Gate 1 & 2 — Validation, Plan & Apply
+### Gate 1 & 2 — Validation
 
-Run the automated test script that performs all validation checks, generates a plan, and deploys to the development environment.
+Run the automated test script that validates all modules, examples, and tests across the multi-variant repository structure.
 
-**Command:**
+**Command (validation only — default):**
 
 ```bash
 bash tests/test-terraform.sh
 ```
+
+**Command (validation + plan + apply for a specific variant):**
+
+```bash
+bash tests/test-terraform.sh --deploy <variant>
+```
+
+Where `<variant>` is one of: `default`, `default-dev-destroy`.
+
+**Available flags:**
+
+| Flag | Purpose |
+|------|---------|
+| `--target <name>` | Validate only a specific variant: `core`, `default`, `default-dev-destroy`. Default: `all` |
+| `--deploy <name>` | Run plan + apply against `tests/<name>/` after validation. Implies `--target <name>` |
+| `--skip-security` | Skip checkov and trivy scans |
+| `--help` | Show usage |
 
 The script automatically performs the following steps:
 
 | Step | Tool | Purpose |
 |------|------|---------|
 | 1 | git-secrets | Scans for hardcoded secrets (AWS keys, passwords) |
-| 2 | terraform fmt | Checks HCL formatting consistency |
-| 3 | terraform init | Ensures providers are initialized |
-| 4 | terraform validate | Syntax and internal consistency check |
-| 5 | tflint | Provider-aware linting (skip if not installed) |
-| 6 | checkov | Security scanning |
-| 7 | trivy | Security scanning |
-| 8 | terraform plan | Generate deployment plan |
-| 9 | terraform apply | Deploy to dev account |
+| 2 | terraform fmt | Checks HCL formatting consistency (recursive) |
+| 3 | terraform init + validate | Per-directory init and validation across all targeted modules, examples, and tests |
+| 4 | tflint | Provider-aware linting per module (non-blocking) |
+| 5 | checkov | Security scanning per module (non-blocking, skipped with `--skip-security`) |
+| 6 | trivy | Security scanning per module (non-blocking, skipped with `--skip-security`) |
+| 7 | terraform plan + apply | Only when `--deploy <name>` is passed; runs against `tests/<name>/` |
 
 The script will:
 
 - Auto-detect your OS (macOS, Ubuntu/Debian, RHEL/CentOS/Fedora)
 - Install missing tools automatically using the appropriate package manager
-- Stop on critical failures (Steps 1-5, 8-9)
-- Continue with warnings for security scan findings (Steps 6-7) - security scans report findings but do NOT fail the pipeline
+- Iterate over all targeted directories (modules, examples, tests) for init/validate
+- Stop on critical failures (Steps 1-3, 7)
+- Continue with warnings for linting and security scan findings (Steps 4-6)
+- Print a summary with pass/warn/fail counters
 
-**Pass criteria:** All validation checks pass and deployment completes successfully (exit code 0)
+**Choosing the right command:**
+
+- Feature is validation-only (no AWS deployment): `bash tests/test-terraform.sh`
+- Feature adds/modifies a single variant: `bash tests/test-terraform.sh --target <variant>`
+- Feature requires E2E deployment: `bash tests/test-terraform.sh --deploy <variant>`
+- Quick iteration (skip slow security scans): `bash tests/test-terraform.sh --skip-security`
+
+**Pass criteria:** Script exits with code 0 (all critical steps pass, warnings are acceptable)
 
 **On failure:** STOP. Review the error output. Do not proceed to Gate 3.
 
-**Note:** Checkov and Trivy security scans will report findings as warnings but will not stop the pipeline. Review security findings and address them as needed, but they do not block deployment. If security findings are false positives or accepted risks, it is acceptable to suppress specific rules:
+**Note:** Checkov and Trivy security scans report findings as warnings but do not fail the pipeline. Review security findings and address them as needed, but they do not block validation. If security findings are false positives or accepted risks, it is acceptable to suppress specific rules:
 
 - **Checkov**: Use inline comments in the terraform code `# checkov:skip=CKV_AWS_XX:Reason for suppression`
 - **Trivy**: Use `.trivyignore` file or inline comments with `# trivy:ignore:AVD-AWS-XXXX`
@@ -105,7 +129,7 @@ Only execute this gate if Gates 1–2 both passed.
    - Keep it factual and concise — not a tutorial, just a record
 
 5. **Stage files individually** (never use `git add .` or `git add -A`):
-   - Feature code files (modules/, envs/)
+   - Feature code files (modules/, examples/, tests/)
    - Updated progress.txt
    - Updated CHANGELOG.md
    - Feature documentation (docs/FEATURE_X.Y.md)
@@ -132,14 +156,21 @@ Only execute this gate if Gates 1–2 both passed.
 Report results after each gate:
 
 ```text
+GATE 1 & 2 — Validation: PASS
+  Script: bash tests/test-terraform.sh [flags used]
+  Results: X passed, Y warnings, 0 failed
+
+GATE 3 — Commit: PASS (committed as feat: X.Y — ...)
+
+All gates passed. Feature X.Y is complete.
+```
+
+If deployment was included:
+
+```text
 GATE 1 & 2 — Validation, Plan & Apply: PASS
-  - git-secrets: passed
-  - terraform fmt: passed
-  - terraform init: passed
-  - terraform validate: passed
-  - tflint: passed (or skipped — not installed)
-  - checkov: completed with warnings (or passed)
-  - trivy: completed with warnings (or passed)
+  Script: bash tests/test-terraform.sh --deploy <variant>
+  Results: X passed, Y warnings, 0 failed
   Plan: 3 to add, 0 to change, 0 to destroy
   Apply: completed successfully
 
@@ -151,9 +182,9 @@ All gates passed. Feature X.Y is complete.
 If any gate fails:
 
 ```text
-GATE 1 & 2 — Validation, Plan & Apply: FAIL
+GATE 1 & 2 — Validation: FAIL
 
-Failed at: terraform validate
+Failed at: terraform validate (modules/default-dev-destroy)
 Error: [error message]
 
 Stopping. Please fix the error and run /test-terraform again.
@@ -168,3 +199,4 @@ Stopping. Please fix the error and run /test-terraform again.
 - **Local commits only:** Never push to remote
 - **Feature documentation required:** Create docs/FEATURE_X.Y.md before committing
 - **Plan before apply:** Never run `terraform apply` without reviewing `terraform plan` output first
+- **Script is not executable:** Always invoke via `bash tests/test-terraform.sh`, never `./tests/test-terraform.sh`
