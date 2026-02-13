@@ -32,12 +32,14 @@
       "env": {}
     },
     "awslabs-diagram-mcp-server": {
+      "autoApprove": [],
+      "disabled": false,
       "type": "stdio",
       "command": "uvx",
-      "args": [
-        "awslabs.diagram-mcp-server@latest"
-      ],
-      "env": {}
+      "args": ["awslabs.aws-diagram-mcp-server"],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
     },
     "terraform-mcp-server": {
       "type": "stdio",
