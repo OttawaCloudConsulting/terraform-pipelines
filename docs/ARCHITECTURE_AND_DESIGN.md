@@ -168,6 +168,7 @@ terraform-pipelines/
 │       └── minimal/
 │
 ├── tests/
+│   ├── test-terraform.sh              # Validation + deploy test script
 │   ├── default/                       # Default variant validation
 │   └── default-dev-destroy/           # Default-dev-destroy variant validation
 │
@@ -235,7 +236,7 @@ All variants expose the same base variable interface. See `prd.md` for the compl
 
 **Required (6):** `project_name`, `github_repo`, `dev_account_id`, `dev_deployment_role_arn`, `prod_account_id`, `prod_deployment_role_arn`
 
-**Optional (19):** `github_branch`, `iac_runtime`, `iac_version`, `codestar_connection_arn`, `create_state_bucket`, `state_bucket`, `state_key_prefix`, `sns_subscribers`, `enable_review_gate`, `codebuild_compute_type`, `codebuild_image`, `checkov_soft_fail`, `codebuild_timeout_minutes`, `logging_bucket`, `logging_prefix`, `log_retention_days`, `artifact_retention_days`, `tags`
+**Optional (18):** `github_branch`, `iac_runtime`, `iac_version`, `codestar_connection_arn`, `create_state_bucket`, `state_bucket`, `state_key_prefix`, `sns_subscribers`, `enable_review_gate`, `codebuild_compute_type`, `codebuild_image`, `checkov_soft_fail`, `codebuild_timeout_minutes`, `logging_bucket`, `logging_prefix`, `log_retention_days`, `artifact_retention_days`, `tags`
 
 **Variant-specific:** Default-DevDestroy adds `enable_destroy_approval` (bool, default: true)
 
@@ -336,8 +337,8 @@ aft-automation account (389068787156)
 ```
 
 **Deployment role in target accounts:** `org-default-deployment-role`
-- DEV: `arn:aws:iam::914089393341:role/org-default-deployment-role`
-- PROD: `arn:aws:iam::264675080489:role/org-default-deployment-role`
+- DEV: `arn:aws:iam::914089393341:role/org/org-default-deployment-role`
+- PROD: `arn:aws:iam::264675080489:role/org/org-default-deployment-role`
 
 ## Dependency Graph
 

@@ -178,6 +178,7 @@ terraform-pipelines/
 │   └── default-dev-destroy/
 │       └── minimal/
 ├── tests/
+│   ├── test-terraform.sh            # Validation + deploy test script
 │   ├── default/
 │   └── default-dev-destroy/
 ├── docs/

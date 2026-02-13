@@ -128,7 +128,7 @@ done
 
 Required: `project_name`, `github_repo`, `dev_account_id`, `dev_deployment_role_arn`, `prod_account_id`, `prod_deployment_role_arn`
 
-Optional with defaults: `github_branch` (main), `iac_runtime` (terraform), `iac_version` (latest), `codestar_connection_arn` (""), `create_state_bucket` (true), `state_bucket` (""), `state_key_prefix` (<project_name>), `sns_subscribers` ([]), `enable_review_gate` (false), `codebuild_compute_type` (BUILD_GENERAL1_SMALL), `codebuild_image` (aws/codebuild/amazonlinux-x86_64-standard:5.0), `codebuild_timeout_minutes` (60), `log_retention_days` (30), `artifact_retention_days` (30), `tags` ({})
+Optional with defaults: `github_branch` (main), `iac_runtime` (terraform), `iac_version` (latest), `codestar_connection_arn` (""), `create_state_bucket` (true), `state_bucket` (""), `state_key_prefix` (<project_name>), `sns_subscribers` ([]), `enable_review_gate` (false), `codebuild_compute_type` (BUILD_GENERAL1_SMALL), `codebuild_image` (aws/codebuild/amazonlinux-x86_64-standard:5.0), `checkov_soft_fail` (false), `codebuild_timeout_minutes` (60), `logging_bucket` (""), `logging_prefix` (""), `log_retention_days` (30), `artifact_retention_days` (30), `tags` ({})
 
 Variant-specific: `enable_destroy_approval` (true) — Default-DevDestroy only
 
@@ -156,8 +156,8 @@ Variant-specific: `enable_destroy_approval` (true) — Default-DevDestroy only
         └── org-default-deployment-role (in target accounts)
 ```
 
-**Deployment role in target accounts:** `org-default-deployment-role`
-- DEV: `arn:aws:iam::914089393341:role/org-default-deployment-role`
-- PROD: `arn:aws:iam::264675080489:role/org-default-deployment-role`
+**Deployment role in target accounts:** `org-default-deployment-role` (under `/org/` IAM path)
+- DEV: `arn:aws:iam::914089393341:role/org/org-default-deployment-role`
+- PROD: `arn:aws:iam::264675080489:role/org/org-default-deployment-role`
 
 **Important:** Cross-account deployment roles in DEV and PROD accounts are manual prerequisites. Prompt the user when it is time to create them.
