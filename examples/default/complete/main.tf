@@ -36,7 +36,10 @@ module "pipeline" {
   enable_review_gate        = true
   codebuild_compute_type    = "BUILD_GENERAL1_MEDIUM"
   codebuild_image           = "aws/codebuild/amazonlinux-x86_64-standard:5.0"
+  checkov_soft_fail         = false
   codebuild_timeout_minutes = 90
+  logging_bucket            = "my-org-s3-access-logs"
+  logging_prefix            = "s3-access-logs/my-project/"
   log_retention_days        = 365
   artifact_retention_days   = 60
 

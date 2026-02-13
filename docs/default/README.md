@@ -55,11 +55,17 @@ The Default variant includes `moved` blocks that map all 28 resources from the o
 | `aws_codepipeline.this` | `aws_codepipeline.this` (stays in variant) |
 | `aws_iam_role.codepipeline` | `module.core.aws_iam_role.codepipeline` |
 | `aws_iam_role.codebuild` | `module.core.aws_iam_role.codebuild` |
+| `aws_iam_role_policy.codepipeline` | `module.core.aws_iam_role_policy.codepipeline` |
+| `aws_iam_role_policy.codebuild` | `module.core.aws_iam_role_policy.codebuild` |
 | `aws_codebuild_project.*` | `module.core.aws_codebuild_project.*` |
 | `aws_cloudwatch_log_group.*` | `module.core.aws_cloudwatch_log_group.*` |
 | `aws_s3_bucket.*` | `module.core.aws_s3_bucket.*` |
+| `aws_s3_bucket_*.*` | `module.core.aws_s3_bucket_*.*` |
 | `aws_sns_topic.*` | `module.core.aws_sns_topic.*` |
+| `aws_sns_topic_policy.*` | `module.core.aws_sns_topic_policy.*` |
 | `aws_codestarconnections_connection.*` | `module.core.aws_codestarconnections_connection.*` |
+
+*Table summarizes moved resource types. The module contains 28 individual `moved` blocks. See `modules/default/main.tf` for the complete list.*
 
 ## Examples
 

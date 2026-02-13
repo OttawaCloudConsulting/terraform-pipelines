@@ -131,7 +131,7 @@ See `examples/` for runnable configurations.
 |------|-------------|
 | `pipeline_arn` | ARN of the CodePipeline. |
 | `pipeline_url` | AWS Console URL for the pipeline. |
-| `codebuild_project_names` | Map of CodeBuild project names. |
+| `codebuild_project_names` | Map of CodeBuild project names (`prebuild`, `plan`, `deploy`, `test`; DevDestroy adds `destroy`). |
 | `codebuild_service_role_arn` | ARN of the CodeBuild service role. |
 | `codepipeline_service_role_arn` | ARN of the CodePipeline service role. |
 | `sns_topic_arn` | ARN of the approval SNS topic. |
@@ -179,8 +179,10 @@ terraform-pipelines/
 │       └── minimal/
 ├── tests/
 │   ├── test-terraform.sh            # Validation + deploy test script
-│   ├── default/
-│   └── default-dev-destroy/
+│   ├── default/                     # Default variant E2E test
+│   │   └── main.tf
+│   └── default-dev-destroy/         # DevDestroy variant E2E test
+│       └── main.tf
 ├── docs/
 │   ├── ARCHITECTURE_AND_DESIGN.md
 │   ├── shared/
@@ -189,6 +191,7 @@ terraform-pipelines/
 ├── CLAUDE.md
 ├── README.md
 ├── CHANGELOG.md
+├── .gitignore
 ├── prd.md
 └── progress.txt
 ```

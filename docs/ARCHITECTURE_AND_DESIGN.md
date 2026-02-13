@@ -82,6 +82,11 @@ The core module exposes a comprehensive set of outputs for variant wrappers:
 | `sns_topic_arn` | `string` | For approval stage actions |
 | `codestar_connection_arn` | `string` | For source stage action |
 | `log_group_arns` | `map(string)` | Log group ARNs for reference |
+| `pipeline_url_prefix` | `string` | AWS Console URL prefix for pipeline URLs |
+| `project_name` | `string` | Project name pass-through for variant outputs |
+| `dev_account_id` | `string` | DEV account ID pass-through |
+| `prod_account_id` | `string` | PROD account ID pass-through |
+| `all_tags` | `map(string)` | Merged tags for variant-owned resources |
 
 ## Variant Architectures
 
@@ -174,8 +179,8 @@ terraform-pipelines/
 │
 ├── docs/
 │   ├── ARCHITECTURE_AND_DESIGN.md     # This file (high-level multi-variant architecture)
-│   ├── codepipeline-mvp-statement.md  # Original MVP specification
 │   ├── shared/                        # Core module docs + shared assets
+│   │   ├── codepipeline-mvp-statement.md  # Original MVP specification
 │   │   └── diagrams/                  # Architecture diagrams (PNG)
 │   │       ├── three-account-model.png
 │   │       ├── pipeline-stages.png
