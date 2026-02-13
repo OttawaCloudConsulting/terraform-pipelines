@@ -14,7 +14,7 @@ provider "aws" {
 }
 
 module "pipeline" {
-  source = "../../"
+  source = "../../../modules/default"
 
   # Required
   project_name             = var.project_name

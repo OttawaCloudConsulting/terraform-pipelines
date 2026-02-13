@@ -1,0 +1,65 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - echo "=== Destroy DEV Stage ==="
+      - echo "Installing ${IAC_RUNTIME} version ${IAC_VERSION}..."
+      - |
+        set -euo pipefail
+        if [ "${IAC_RUNTIME}" = "opentofu" ]; then
+          if [ "${IAC_VERSION}" = "latest" ]; then
+            curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method standalone
+          else
+            curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method standalone --opentofu-version ${IAC_VERSION}
+          fi
+          ln -sf /usr/local/bin/tofu /usr/local/bin/terraform
+        else
+          if [ "${IAC_VERSION}" = "latest" ]; then
+            TF_VERSION=$(curl -s https://checkpoint-api.hashicorp.com/v1/check/terraform | python3 -c "import sys,json; print(json.load(sys.stdin)['current_version'])")
+          else
+            TF_VERSION=${IAC_VERSION}
+          fi
+          curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" -o terraform.zip
+          unzip -o terraform.zip -d /usr/local/bin/
+          rm terraform.zip
+        fi
+      - terraform --version
+
+  build:
+    commands:
+      # Role assumption, init, and destroy in a single phase to guarantee
+      # STS credentials persist across all commands.
+      - 'echo "Assuming cross-account role: $TARGET_ROLE"'
+      - |
+        set -euo pipefail
+        CREDENTIALS=$(aws sts assume-role \
+          --role-arn "${TARGET_ROLE}" \
+          --role-session-name "codebuild-destroy-dev" \
+          --duration-seconds 3600 \
+          --output json)
+        export AWS_ACCESS_KEY_ID=$(echo $CREDENTIALS | python3 -c "import sys,json; print(json.load(sys.stdin)['Credentials']['AccessKeyId'])")
+        export AWS_SECRET_ACCESS_KEY=$(echo $CREDENTIALS | python3 -c "import sys,json; print(json.load(sys.stdin)['Credentials']['SecretAccessKey'])")
+        export AWS_SESSION_TOKEN=$(echo $CREDENTIALS | python3 -c "import sys,json; print(json.load(sys.stdin)['Credentials']['SessionToken'])")
+
+        echo "Initializing Terraform with S3 backend (DEV state)..."
+        terraform init \
+          -backend-config="bucket=${STATE_BUCKET}" \
+          -backend-config="key=${STATE_KEY_PREFIX}/dev/terraform.tfstate" \
+          -backend-config="region=${AWS_DEFAULT_REGION}" \
+          -backend-config="use_lockfile=true" \
+          -input=false
+
+        echo "Running terraform destroy for DEV environment..."
+        DESTROY_ARGS="-auto-approve -input=false"
+        if [ -f "environments/dev.tfvars" ]; then
+          DESTROY_ARGS="${DESTROY_ARGS} -var-file=environments/dev.tfvars"
+          echo "Using var file: environments/dev.tfvars"
+        else
+          echo "No environments/dev.tfvars found, proceeding without var-file."
+        fi
+        terraform destroy ${DESTROY_ARGS}
+
+  post_build:
+    commands:
+      - echo "DEV environment destroy complete."

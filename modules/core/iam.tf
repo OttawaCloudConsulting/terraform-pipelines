@@ -49,12 +49,15 @@ resource "aws_iam_role_policy" "codepipeline" {
           "codebuild:BatchGetBuilds",
           "codebuild:StartBuild"
         ]
-        Resource = [
-          aws_codebuild_project.prebuild.arn,
-          aws_codebuild_project.plan.arn,
-          aws_codebuild_project.deploy.arn,
-          aws_codebuild_project.test.arn
-        ]
+        Resource = concat(
+          [
+            aws_codebuild_project.prebuild.arn,
+            aws_codebuild_project.plan.arn,
+            aws_codebuild_project.deploy.arn,
+            aws_codebuild_project.test.arn
+          ],
+          var.additional_codebuild_project_arns
+        )
       },
       {
         Sid    = "CodeStarConnectionAccess"
@@ -162,12 +165,15 @@ resource "aws_iam_role_policy" "codebuild" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = [
-          "${aws_cloudwatch_log_group.prebuild.arn}:*",
-          "${aws_cloudwatch_log_group.plan.arn}:*",
-          "${aws_cloudwatch_log_group.deploy.arn}:*",
-          "${aws_cloudwatch_log_group.test.arn}:*"
-        ]
+        Resource = concat(
+          [
+            "${aws_cloudwatch_log_group.prebuild.arn}:*",
+            "${aws_cloudwatch_log_group.plan.arn}:*",
+            "${aws_cloudwatch_log_group.deploy.arn}:*",
+            "${aws_cloudwatch_log_group.test.arn}:*"
+          ],
+          var.additional_log_group_arns
+        )
       },
       {
         Sid    = "CodeBuildReports"
