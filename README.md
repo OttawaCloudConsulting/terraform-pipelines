@@ -219,6 +219,7 @@ terraform-pipelines/
 ├── docs/
 │   ├── ARCHITECTURE_AND_DESIGN.md  # Full architecture reference
 │   ├── codepipeline-mvp-statement.md
+│   ├── diagrams/                    # Architecture diagrams (PNG)
 │   ├── FEATURES_1-7.md
 │   ├── FEATURE_8.md
 │   ├── FEATURE_9.md

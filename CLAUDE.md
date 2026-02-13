@@ -68,9 +68,9 @@ Optional with defaults: `github_branch` (main), `iac_runtime` (terraform), `iac_
 
 | Account | Account ID | CLI Profile |
 |---------|-----------|-------------|
-| Automation | 389068787156 | `aft-automation` |
-| DEV Target | 914089393341 | `developer-account` |
-| PROD Target | 264675080489 | `network` |
+| Automation | 111111111111 | `automation` |
+| DEV Target | 222222222222 | `developer-account` |
+| PROD Target | 333333333333 | `production-account` |
 
 **Test repo:** `OttawaCloudConsulting/terraform-test`, branch `s3-bucket` (deploys without tfvars)
 
