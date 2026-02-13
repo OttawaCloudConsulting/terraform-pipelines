@@ -18,10 +18,11 @@ module "dev_destroy_pipeline" {
 
   project_name             = "test-dev-destroy"
   github_repo              = "OttawaCloudConsulting/terraform-test"
+  github_branch            = "s3-bucket"
   dev_account_id           = "914089393341"
-  dev_deployment_role_arn  = "arn:aws:iam::914089393341:role/org-default-deployment-role"
+  dev_deployment_role_arn  = "arn:aws:iam::914089393341:role/org/org-default-deployment-role"
   prod_account_id          = "264675080489"
-  prod_deployment_role_arn = "arn:aws:iam::264675080489:role/org-default-deployment-role"
+  prod_deployment_role_arn = "arn:aws:iam::264675080489:role/org/org-default-deployment-role"
 
   # Variant-specific: test with approval enabled (default)
   enable_destroy_approval = true
