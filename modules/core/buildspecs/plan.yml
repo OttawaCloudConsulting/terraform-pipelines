@@ -36,7 +36,7 @@ phases:
         set -euo pipefail
         if [ "${IAC_WORKING_DIR}" != "." ]; then
           echo "Changing to IaC directory: ${IAC_WORKING_DIR}"
-          cd "${IAC_WORKING_DIR}"
+          cd "${CODEBUILD_SRC_DIR}/${IAC_WORKING_DIR}"
         fi
         echo "Initializing Terraform with S3 backend..."
         terraform init \
@@ -53,7 +53,7 @@ phases:
       - |
         set -euo pipefail
         if [ "${IAC_WORKING_DIR}" != "." ]; then
-          cd "${IAC_WORKING_DIR}"
+          cd "${CODEBUILD_SRC_DIR}/${IAC_WORKING_DIR}"
         fi
         echo "Running terraform plan..."
         terraform plan -out=tfplan -input=false
