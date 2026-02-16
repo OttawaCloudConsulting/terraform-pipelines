@@ -34,7 +34,7 @@ phases:
         set -euo pipefail
         if [ "${IAC_WORKING_DIR}" != "." ]; then
           echo "Changing to IaC directory: ${IAC_WORKING_DIR}"
-          cd "${IAC_WORKING_DIR}"
+          cd "${CODEBUILD_SRC_DIR}/${IAC_WORKING_DIR}"
         fi
 
         echo "Assuming cross-account role: $TARGET_ROLE"
