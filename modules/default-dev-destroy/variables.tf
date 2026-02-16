@@ -100,7 +100,7 @@ variable "codestar_connection_arn" {
   default     = ""
 
   validation {
-    condition     = var.codestar_connection_arn == "" || can(regex("^arn:aws:codestar-connections:[a-z0-9-]+:[0-9]{12}:connection/.+$", var.codestar_connection_arn))
+    condition     = var.codestar_connection_arn == "" || can(regex("^arn:aws:(codestar-connections|codeconnections):[a-z0-9-]+:[0-9]{12}:connection/.+$", var.codestar_connection_arn))
     error_message = "codestar_connection_arn must be empty or a valid CodeStar Connection ARN."
   }
 }
