@@ -32,6 +32,7 @@ module "core" {
   logging_prefix            = var.logging_prefix
   log_retention_days        = var.log_retention_days
   artifact_retention_days   = var.artifact_retention_days
+  iac_working_directory     = var.iac_working_directory
   tags                      = var.tags
 
   # IAM extensibility — register variant-owned destroy resources with core policies
@@ -93,6 +94,11 @@ resource "aws_codebuild_project" "destroy" {
     environment_variable {
       name  = "STATE_KEY_PREFIX"
       value = var.state_key_prefix != "" ? var.state_key_prefix : var.project_name
+    }
+
+    environment_variable {
+      name  = "IAC_WORKING_DIR"
+      value = var.iac_working_directory
     }
   }
 

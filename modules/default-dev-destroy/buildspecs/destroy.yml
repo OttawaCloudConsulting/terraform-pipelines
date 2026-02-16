@@ -30,9 +30,14 @@ phases:
     commands:
       # Role assumption, init, and destroy in a single phase to guarantee
       # STS credentials persist across all commands.
-      - 'echo "Assuming cross-account role: $TARGET_ROLE"'
       - |
         set -euo pipefail
+        if [ "${IAC_WORKING_DIR}" != "." ]; then
+          echo "Changing to IaC directory: ${IAC_WORKING_DIR}"
+          cd "${IAC_WORKING_DIR}"
+        fi
+
+        echo "Assuming cross-account role: $TARGET_ROLE"
         CREDENTIALS=$(aws sts assume-role \
           --role-arn "${TARGET_ROLE}" \
           --role-session-name "codebuild-destroy-dev" \

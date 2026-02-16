@@ -72,6 +72,17 @@
     - All examples pass terraform init && terraform validate && terraform fmt -check
     NOTES: Started 2026-02-13. Completed 2026-02-13. Old examples removed via git rm.
 
+[x] Feature 8: IaC Working Directory Variable
+    - New variable iac_working_directory (default: ".") in core, default, and default-dev-destroy
+    - Allows Terraform/OpenTofu files to live in a subdirectory of the target repo
+    - Passed as IAC_WORKING_DIR env var to plan, deploy, and destroy CodeBuild projects
+    - Buildspecs (plan.yml, deploy.yml, destroy.yml) cd into IAC_WORKING_DIR before terraform commands
+    - cicd/ scripts (prebuild, smoke tests) remain repo-root-relative — not affected by this variable
+    - prebuild.yml and test.yml unchanged (no terraform commands, only cicd/ scripts)
+    - Default value "." preserves existing behavior — fully backward compatible
+    - terraform validate passes for both variants
+    NOTES: Started 2026-02-16. Completed 2026-02-16.
+
 [x] Feature 6: Per-Variant Tests
     - tests/default/main.tf — validates default variant
     - tests/default-dev-destroy/main.tf — validates dev-destroy variant

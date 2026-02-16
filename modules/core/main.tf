@@ -136,6 +136,11 @@ resource "aws_codebuild_project" "plan" {
       name  = "CHECKOV_SOFT_FAIL"
       value = tostring(var.checkov_soft_fail)
     }
+
+    environment_variable {
+      name  = "IAC_WORKING_DIR"
+      value = var.iac_working_directory
+    }
   }
 
   source {
@@ -193,6 +198,11 @@ resource "aws_codebuild_project" "deploy" {
     environment_variable {
       name  = "STATE_KEY_PREFIX"
       value = local.state_key_prefix
+    }
+
+    environment_variable {
+      name  = "IAC_WORKING_DIR"
+      value = var.iac_working_directory
     }
   }
 

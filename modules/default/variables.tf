@@ -208,6 +208,12 @@ variable "artifact_retention_days" {
   }
 }
 
+variable "iac_working_directory" {
+  description = "Subdirectory containing Terraform/OpenTofu files, relative to repo root. Defaults to repo root."
+  type        = string
+  default     = "."
+}
+
 variable "tags" {
   description = "Additional tags merged with module-managed tags and applied to all resources."
   type        = map(string)

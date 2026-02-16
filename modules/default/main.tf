@@ -31,6 +31,7 @@ module "core" {
   logging_prefix            = var.logging_prefix
   log_retention_days        = var.log_retention_days
   artifact_retention_days   = var.artifact_retention_days
+  iac_working_directory     = var.iac_working_directory
   tags                      = var.tags
 }
 
