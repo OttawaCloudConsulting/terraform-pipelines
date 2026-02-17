@@ -4,12 +4,7 @@
 
 output "codebuild_project_names" {
   description = "Map of CodeBuild project names for pipeline stage actions."
-  value = {
-    prebuild = aws_codebuild_project.prebuild.name
-    plan     = aws_codebuild_project.plan.name
-    deploy   = aws_codebuild_project.deploy.name
-    test     = aws_codebuild_project.test.name
-  }
+  value       = { for k, v in aws_codebuild_project.this : k => v.name }
 }
 
 # -----------------------------------------------------------------------------
@@ -64,12 +59,7 @@ output "codestar_connection_arn" {
 
 output "log_group_arns" {
   description = "Map of CloudWatch log group ARNs for reference."
-  value = {
-    prebuild = aws_cloudwatch_log_group.prebuild.arn
-    plan     = aws_cloudwatch_log_group.plan.arn
-    deploy   = aws_cloudwatch_log_group.deploy.arn
-    test     = aws_cloudwatch_log_group.test.arn
-  }
+  value       = { for k, v in aws_cloudwatch_log_group.this : k => v.arn }
 }
 
 # -----------------------------------------------------------------------------

@@ -157,8 +157,14 @@ variable "codebuild_image" {
   }
 }
 
+variable "enable_security_scan" {
+  description = "Whether to run Checkov security scan within each Plan action. Defaults to enabled."
+  type        = bool
+  default     = true
+}
+
 variable "checkov_soft_fail" {
-  description = "When true, checkov findings do not fail the pipeline. Use during initial adoption only."
+  description = "When true, Checkov findings are advisory (soft-fail) for DEV plans only. PROD plans always hard-fail regardless of this setting."
   type        = bool
   default     = false
 }
