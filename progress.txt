@@ -1,103 +1,45 @@
-# Progress: Multi-Variant Terraform Pipeline Repository
-# Source: prd.md + ARCHITECTURE_AND_DESIGN.md
+# Progress: Provider Override for Cross-Account Credential Flow
+# Source: prd.md + docs/ARCHITECTURE_AND_DESIGN.md
 # Spec: docs/ARCHITECTURE_AND_DESIGN.md is the authoritative design reference
-# Variants: Default (9-stage, cross-account or single-account), Default-DevDestroy (10-11 stage)
+# Context: docs/REFINEMENT_2.md is the problem analysis
+
+## Previous Approach (Superseded)
+# The self-assumption + backend role_arn approach from the first attempt had
+# role chaining failures. Replaced with provider override approach below.
 
 ## Features
 
-[x] Feature 1: Core Module Extraction and Repository Restructure
-    - Move root-level .tf files into modules/core/ and modules/default/
-    - Move buildspecs/ to modules/core/buildspecs/
-    - modules/core/ creates: 2 IAM roles + policies, S3 state bucket (conditional),
-      S3 artifact bucket, SNS topic, CodeStar Connection (conditional),
-      4 CloudWatch log groups, 4 CodeBuild projects
-    - Core IAM policies accept optional additional_codebuild_project_arns and
-      additional_log_group_arns inputs to support variant-owned resources
-    - Core variables.tf: superset of all inputs needed by core resources
-    - Core outputs.tf: all resource ARNs/names/IDs needed by variant wrappers
-    - Core does NOT create CodePipeline (variants own that)
-    - modules/default-dev-destroy/ empty skeleton exists
-    - Restructure docs/ into nested format (shared/, default/, default-dev-destroy/)
-    - Move diagrams to docs/shared/diagrams/
-    - Repository root is clean (no .tf files except potentially a root versions.tf)
-    - terraform validate passes for the core module in isolation
-    NOTES: Started 2026-02-13. Completed 2026-02-13.
+[x] Feature 1: Buildspecs — Replace STS assume-role with provider override
+    - plan.yml: generate _pipeline_override.tf with assume_role block, remove STS assume-role
+    - deploy.yml: generate _pipeline_override.tf with assume_role block, remove STS assume-role
+    - destroy.yml: generate _pipeline_override.tf with assume_role block, remove STS assume-role
+    - Remove assume_role from backend.hcl (no longer needed — CodeBuild SR instance profile handles S3)
+    - post_build: rm -f _pipeline_override.tf in all three buildspecs
+    - terraform validate passes for both variants and all examples
+    NOTES: Completed 2026-02-16.
+    All three buildspecs updated. Override file generated via cat + envsubst pattern.
+    Backend config simplified (no assume_role line). Cleanup in post_build.
 
-[x] Feature 2: Default Variant — Wrapper Module
-    - Create modules/default/main.tf calling modules/core/ + defining 9-stage CodePipeline V2
-    - 9 stages: Source > Pre-Build > Plan+Scan > Optional Review > Deploy DEV >
-      Test DEV > Mandatory Approval > Deploy PROD > Test PROD
-    - Uniform variable interface (all base variables, pass-through to core)
-    - Uniform output interface (all 11 outputs, pass-through from core)
-    - Include moved blocks so existing root module users migrate without resource destruction
-    - Support single-account deployment when dev_account_id == prod_account_id
-    - Functionally identical resources to the current monolithic module
-    - terraform validate passes
-    NOTES: Started 2026-02-13. Completed 2026-02-13.
+[x] Feature 2: IAM — Remove self-assumption
+    - Remove AllowSelfAssumption trust policy statement from CodeBuild SR
+    - Remove self-ARN from AssumeRole permission resource list
+    - terraform validate passes for both variants and all examples
+    NOTES: Completed 2026-02-16.
+    Trust policy simplified to codebuild.amazonaws.com only.
+    AssumeRole resource list now just dev + prod deployment roles.
 
-[x] Feature 3: Default-DevDestroy Variant — Wrapper Module
-    - Create modules/default-dev-destroy/ with 10-11 stage CodePipeline V2
-    - Variant creates 5th CodeBuild project (destroy) + dedicated CloudWatch log group
-    - Pass destroy CB project ARN and log group ARN to core via
-      additional_codebuild_project_arns and additional_log_group_arns
-    - enable_destroy_approval defaults to true (safe by default)
-    - When true: manual approval stage before destroy (11 stages total)
-    - When false: destroy runs automatically after PROD tests pass (10 stages total)
-    - Destroy stage runs terraform destroy against DEV via cross-account role
-    - Destroy buildspec at modules/default-dev-destroy/buildspecs/destroy.yml
-    - Destroy CodeBuild project uses same CodeBuild service role from core
-    - If destroy stage fails, pipeline shows as Failed and DEV remains intact
-    - Uniform variable interface + enable_destroy_approval
-    - Uniform output interface
-    - terraform validate passes
-    NOTES: Started 2026-02-13. Completed 2026-02-13. Destroy buildspec is placeholder (Feature 4).
+[x] Feature 3: Remove STATE_ACCESS_ROLE_ARN env var
+    - Remove from plan-dev, plan-prod, deploy-dev, deploy-prod in core locals.tf
+    - Remove from destroy project in default-dev-destroy/main.tf
+    - terraform validate passes for both variants and all examples
+    NOTES: Completed 2026-02-16.
+    Removed from all 4 core project env_vars and destroy project env_var block.
 
-[x] Feature 4: Destroy Buildspec
-    - Create modules/default-dev-destroy/buildspecs/destroy.yml
-    - Installs IaC runtime (terraform or opentofu)
-    - IaC installation logic kept consistent with core buildspecs (deploy.yml)
-    - Assumes cross-account DEV deployment role via sts:AssumeRole
-    - Initializes Terraform with DEV state key
-    - Runs terraform destroy -auto-approve
-    - Handles var-file gracefully (checks if environments/dev.tfvars exists)
-    - Uses set -euo pipefail
-    NOTES: Started 2026-02-13. Completed 2026-02-13.
+[x] Feature 4: Documentation
+    - CLAUDE.md: Updated credential flow description to provider override pattern
+    - progress.txt: Rewritten to reflect new approach
+    NOTES: Completed 2026-02-16.
 
-[x] Feature 5: Per-Variant Examples
-    - examples/default/minimal/ — required variables only
-    - examples/default/complete/ — all variables with production overrides
-    - examples/default/opentofu/ — OpenTofu runtime example
-    - examples/default/single-account/ — same-account (dev_account_id == prod_account_id)
-    - examples/default-dev-destroy/minimal/ — minimal dev-destroy example
-    - All examples pass terraform init && terraform validate && terraform fmt -check
-    NOTES: Started 2026-02-13. Completed 2026-02-13. Old examples removed via git rm.
-
-[x] Feature 8: IaC Working Directory Variable
-    - New variable iac_working_directory (default: ".") in core, default, and default-dev-destroy
-    - Allows Terraform/OpenTofu files to live in a subdirectory of the target repo
-    - Passed as IAC_WORKING_DIR env var to plan, deploy, and destroy CodeBuild projects
-    - Buildspecs (plan.yml, deploy.yml, destroy.yml) cd into IAC_WORKING_DIR before terraform commands
-    - cicd/ scripts (prebuild, smoke tests) remain repo-root-relative — not affected by this variable
-    - prebuild.yml and test.yml unchanged (no terraform commands, only cicd/ scripts)
-    - Default value "." preserves existing behavior — fully backward compatible
-    - terraform validate passes for both variants
-    NOTES: Started 2026-02-16. Completed 2026-02-16.
-
-[x] Feature 6: Per-Variant Tests
-    - tests/default/main.tf — validates default variant
-    - tests/default-dev-destroy/main.tf — validates dev-destroy variant
-    - All tests pass terraform init && terraform validate
-    NOTES: Started 2026-02-13. Completed 2026-02-13.
-
-[x] Feature 7: Documentation Restructure
-    - docs/ root: high-level ARCHITECTURE_AND_DESIGN.md (multi-variant overview)
-    - docs/shared/: core module docs + docs/shared/diagrams/ (moved from docs/diagrams/)
-    - docs/default/: default variant docs + single-account usage guide
-    - docs/default-dev-destroy/: default-dev-destroy variant docs
-    - CLAUDE.md: new module structure, variant descriptions, consumer usage patterns,
-      corrected state_bucket documentation (optional, not required)
-    - README.md: variant overview, usage examples, directory structure
-    - CHANGELOG.md: restructuring entry
-    - Migration guide for existing monolithic module users (moved blocks documentation)
-    - Existing feature docs and working docs moved to appropriate subdirectories
-    NOTES: Started 2026-02-13. Completed 2026-02-13.
+## Verification
+- All 3 modules (core, default, default-dev-destroy) pass terraform validate
+- All 9 examples pass terraform init -backend=false && terraform validate && terraform fmt -check
