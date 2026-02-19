@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # AWS Profile for deploying to the Automation Account.
 # Only set if not already defined by the caller.
-export AWS_PROFILE="${AWS_PROFILE:-aft-automation}"
+export AWS_PROFILE="${AWS_PROFILE:?AWS_PROFILE must be set to the Automation Account CLI profile}"
 
 # Defaults
 TARGET="all"

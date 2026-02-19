@@ -34,16 +34,13 @@
       "Bash(gh issue list:*)",
       "Bash(gh issue view:*)",
       "Bash(directory\". Using $CODEBUILD_SRC_DIR as the base path makes all cd\ncommands deterministic regardless of inherited working directory state.\n\nFixes #4\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(gh issue close:*)"
+      "Bash(gh issue close:*)",
+      "Bash(for dir in modules/core modules/default modules/default-dev-destroy)",
+      "Bash(do echo \"=== $dir ===\")",
+      "Bash(done)",
+      "Bash(for dir in examples/default/minimal examples/default/complete examples/default/opentofu examples/default/single-account examples/default-dev-destroy/minimal)",
+      "Bash(for dir in tests/default tests/default-dev-destroy)"
     ]
   },
-  "enabledMcpjsonServers": [
-    "awslabs-core-mcp-server",
-    "aws-knowledge-mcp",
-    "awslabs-aws-documentation-mcp-server",
-    "awslabs-diagram-mcp-server",
-    "terraform-mcp-server",
-    "awslabs-terraform-mcp-server",
-    "mermaid-mcp"
-  ]
+  "enabledMcpjsonServers": []
 }

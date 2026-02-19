@@ -17,10 +17,10 @@ module "default_pipeline" {
   source = "../../modules/default"
 
   project_name             = "test-default"
-  github_repo              = "OttawaCloudConsulting/terraform-test"
-  github_branch            = "s3-bucket"
-  dev_account_id           = "914089393341"
-  dev_deployment_role_arn  = "arn:aws:iam::914089393341:role/org/org-default-deployment-role"
-  prod_account_id          = "264675080489"
-  prod_deployment_role_arn = "arn:aws:iam::264675080489:role/org/org-default-deployment-role"
+  github_repo              = var.github_repo
+  github_branch            = var.github_branch
+  dev_account_id           = var.dev_account_id
+  dev_deployment_role_arn  = var.dev_deployment_role_arn
+  prod_account_id          = var.prod_account_id
+  prod_deployment_role_arn = var.prod_deployment_role_arn
 }

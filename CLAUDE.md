@@ -10,7 +10,7 @@ This repository implements a **multi-variant Terraform pipeline template** using
 - **Default** (`modules/default/`) — 6-stage cross-account pipeline with consolidated environment stages. Also supports single-account when `dev_account_id == prod_account_id`.
 - **Default-DevDestroy** (`modules/default-dev-destroy/`) — 7-8 stages. Default + destroy DEV after PROD tests pass. `enable_destroy_approval` (default: `true`) controls manual approval gate.
 
-The authoritative design documents are `prd.md` (requirements), `docs/ARCHITECTURE_AND_DESIGN.md` (architecture), and `docs/shared/codepipeline-mvp-statement.md` (original MVP statement). Implementation progress is tracked in `progress.txt`.
+The authoritative design document is `docs/ARCHITECTURE_AND_DESIGN.md` (architecture). The original MVP statement is in `docs/shared/codepipeline-mvp-statement.md`.
 
 ## Architecture
 
@@ -118,18 +118,39 @@ module "pipeline" {
 
 ## Build & Validate
 
-```bash
-# Validate a specific module
-cd modules/default
-terraform init -backend=false
-terraform validate
-terraform fmt -check
+The primary validation tool is `tests/test-terraform.sh`, which runs all gates in sequence:
 
-# Validate all examples
-for dir in examples/*/*; do
-  (cd "$dir" && terraform init -backend=false && terraform validate && terraform fmt -check)
-done
+```bash
+# Full validation — all modules, examples, tests (7 steps: git-secrets, fmt, init+validate, tflint, checkov, trivy)
+bash tests/test-terraform.sh
+
+# Validate a single variant (includes core automatically)
+bash tests/test-terraform.sh --target default
+bash tests/test-terraform.sh --target default-dev-destroy
+
+# Validate + plan + apply a test deployment (requires AWS creds via AWS_PROFILE)
+bash tests/test-terraform.sh --deploy default
+
+# Skip slow security scans during iteration
+bash tests/test-terraform.sh --skip-security
 ```
+
+Manual validation of individual directories:
+
+```bash
+terraform -chdir=modules/default init -backend=false && terraform -chdir=modules/default validate
+terraform fmt -check -recursive .
+```
+
+## Development Workflow
+
+This repo uses a feature-driven workflow tracked in `progress.txt`:
+
+1. **`/start-feature`** — reads `progress.txt`, finds next pending feature, marks feature `[~]` (in progress), begins implementation
+2. **Implement** — follow architecture in `docs/ARCHITECTURE_AND_DESIGN.md`
+3. **`/test-terraform`** — runs all validation gates, updates `progress.txt` to `[x]`, creates feature docs, commits locally (never pushes)
+
+Features are always worked on one at a time. The script invocation is always `bash tests/test-terraform.sh` (not `./tests/test-terraform.sh`).
 
 ## Terraform Conventions
 
@@ -150,30 +171,23 @@ Variant-specific: `enable_destroy_approval` (true) — Default-DevDestroy only
 
 ## Test Environment
 
-| Account | Account ID | CLI Profile | Purpose |
-|---------|-----------|-------------|---------|
-| Automation | 389068787156 | `aft-automation` | Pipeline host — all pipeline resources deployed here |
-| DEV Target | 914089393341 | `developer-account` | DEV deployment target |
-| PROD Target | 264675080489 | `network` | PROD deployment target |
+To run E2E tests (`--deploy`), you need three AWS accounts and a test GitHub repo:
 
-**Test repo:** `OttawaCloudConsulting/terraform-test`, branch `s3-bucket` (deploys without tfvars)
+| Account | Purpose |
+|---------|---------|
+| Automation | Pipeline host — all pipeline resources deployed here |
+| DEV Target | DEV deployment target |
+| PROD Target | PROD deployment target |
+
+Configure your test values in `tests/<variant>/terraform.tfvars` (copy from `terraform.tfvars.example`). Set `AWS_PROFILE` to the Automation Account CLI profile before running `bash tests/test-terraform.sh --deploy <variant>`.
 
 ### Cross-Account Role Chain
 
 ```
- aft-automation account (389068787156)
-├── org-automation-broker-role
-│   └── Assumes (role-chain) →
-│       ├── org-default-deployment-role (in target accounts)
-│       └── application-default-deployment-role (in target accounts)
-│
+ Automation Account
 └── CodeBuild-<project>-ServiceRole (created by terraform-pipelines module)
-    └── Assumes (direct, first-hop) →
-        └── org-default-deployment-role (in target accounts)
+    └── Assumes (direct) →
+        └── deployment-role (in target accounts)
 ```
 
-**Deployment role in target accounts:** `org-default-deployment-role` (under `/org/` IAM path)
-- DEV: `arn:aws:iam::914089393341:role/org/org-default-deployment-role`
-- PROD: `arn:aws:iam::264675080489:role/org/org-default-deployment-role`
-
-**Important:** Cross-account deployment roles in DEV and PROD accounts are manual prerequisites. Prompt the user when it is time to create them.
+Cross-account deployment roles in DEV and PROD accounts are manual prerequisites — they must pre-exist and trust the CodeBuild service role from the Automation Account.

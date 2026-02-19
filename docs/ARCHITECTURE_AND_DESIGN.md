@@ -395,7 +395,7 @@ When `enable_security_scan=false`, neither environment runs the Checkov scan.
 | 10 | `enable_review_gate` repurposed for DEV | PROD approval is always mandatory. The existing toggle now controls the optional DEV approval action within the DEV stage. |
 | 11 | Remove throwaway plan state path | The `plan/terraform.tfstate` path served no purpose beyond initializing providers for the old environment-agnostic plan. Per-env plans use real state. |
 | 12 | Always proceed on empty plan | Even with zero changes, pipeline runs through Approve and Deploy (apply is a no-op). Avoids custom logic to signal downstream actions. Consistent flow. |
-| 13 | No moved blocks (POC) | No deployed pipelines exist. Clean implementation without migration baggage. |
+| 13 | No moved blocks | Clean implementation without migration baggage. |
 | 14 | Artifact contains tfplan only | Deploy needs only the saved plan. JSON and Checkov report are consumed within the Plan action. Smaller artifact. |
 | 15 | Keep current file layout | main.tf (CodeBuild + logs), iam.tf, storage.tf, codestar.tf. Minimal diff, familiar structure. |
 | 16 | Provider override file for cross-account access | Buildspecs generate `_pipeline_override.tf` at runtime with `provider "aws" { assume_role { ... } }`. Terraform merges this with the developer's provider block, injecting cross-account role assumption transparently. No `aws sts assume-role` or `export AWS_*` in buildspecs. |
@@ -440,17 +440,15 @@ When `enable_security_scan=false`, neither environment runs the Checkov scan.
 
 ## Test Environment
 
-| Account | Account ID | CLI Profile | Purpose |
-|---------|-----------|-------------|---------|
-| Automation | 389068787156 | `aft-automation` | Pipeline host — all pipeline resources deployed here |
-| DEV Target | 914089393341 | `developer-account` | DEV deployment target |
-| PROD Target | 264675080489 | `network` | PROD deployment target |
+To run E2E tests, you need three AWS accounts with cross-account deployment roles:
 
-**Test repo:** `OttawaCloudConsulting/terraform-test`, branch `s3-bucket`
+| Account | Purpose |
+|---------|---------|
+| Automation | Pipeline host — all pipeline resources deployed here |
+| DEV Target | DEV deployment target |
+| PROD Target | PROD deployment target |
 
-**Deployment role in target accounts:** `org-default-deployment-role`
-- DEV: `arn:aws:iam::914089393341:role/org/org-default-deployment-role`
-- PROD: `arn:aws:iam::264675080489:role/org/org-default-deployment-role`
+Configure test values in `tests/<variant>/terraform.tfvars` (copy from `terraform.tfvars.example`).
 
 ## Out of Scope
 
@@ -462,4 +460,4 @@ When `enable_security_scan=false`, neither environment runs the Checkov scan.
 | Core module as public API | Consumers must use variant wrappers. |
 | Customer-managed KMS keys | SSE-S3 sufficient for artifact encryption. |
 | Empty plan short-circuiting | Always proceed through Approve and Deploy. |
-| Migration tooling / moved blocks | POC — no deployed pipelines to migrate. |
+| Migration tooling / moved blocks | Not needed — clean implementation. |

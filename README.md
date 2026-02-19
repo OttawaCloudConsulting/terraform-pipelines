@@ -6,8 +6,8 @@ A family of reusable Terraform modules that provision AWS CodePipeline V2 + Code
 
 | Variant | Module Source | Stages | Use Case |
 |---------|-------------|--------|----------|
-| **Default** | `modules/default/` | 9 | Standard cross-account DEV/PROD deployment |
-| **Default-DevDestroy** | `modules/default-dev-destroy/` | 10-11 | Cross-account with ephemeral DEV teardown |
+| **Default** | `modules/default/` | 6 | Standard cross-account DEV/PROD deployment |
+| **Default-DevDestroy** | `modules/default-dev-destroy/` | 7-8 | Cross-account with ephemeral DEV teardown |
 
 The **Default** variant also supports single-account deployment when `dev_account_id == prod_account_id`.
 
@@ -141,34 +141,14 @@ See `examples/` for runnable configurations.
 | `dev_account_id` | DEV account ID (pass-through). |
 | `prod_account_id` | PROD account ID (pass-through). |
 
-## Migration from Monolithic Module
-
-If you previously used the root module directly, update your `source` to `modules/default/`:
-
-```hcl
-# Before
-module "pipeline" {
-  source = "path/to/terraform-pipelines"
-  ...
-}
-
-# After
-module "pipeline" {
-  source = "path/to/terraform-pipelines//modules/default"
-  ...
-}
-```
-
-The Default variant includes `moved` blocks for all resources, so `terraform plan` will show moves (not destroy/create). No resource recreation occurs.
-
 ## Repository Structure
 
 ```
 terraform-pipelines/
 ├── modules/
 │   ├── core/                          # Internal shared module
-│   ├── default/                       # Default variant (9 stages)
-│   └── default-dev-destroy/           # DevDestroy variant (10-11 stages)
+│   ├── default/                       # Default variant (6 stages)
+│   └── default-dev-destroy/           # DevDestroy variant (7-8 stages)
 ├── examples/
 │   ├── default/
 │   │   ├── minimal/
@@ -191,9 +171,7 @@ terraform-pipelines/
 ├── CLAUDE.md
 ├── README.md
 ├── CHANGELOG.md
-├── .gitignore
-├── prd.md
-└── progress.txt
+└── .gitignore
 ```
 
 ## Documentation

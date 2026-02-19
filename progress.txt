@@ -1,45 +1,59 @@
-# Progress: Provider Override for Cross-Account Credential Flow
-# Source: prd.md + docs/ARCHITECTURE_AND_DESIGN.md
-# Spec: docs/ARCHITECTURE_AND_DESIGN.md is the authoritative design reference
-# Context: docs/REFINEMENT_2.md is the problem analysis
-
-## Previous Approach (Superseded)
-# The self-assumption + backend role_arn approach from the first attempt had
-# role chaining failures. Replaced with provider override approach below.
+# Progress: De-identify Repository for Public Release
+# Source: Plan file (snug-painting-snowglobe.md)
+# Spec: Plan file is the authoritative reference
 
 ## Features
 
-[x] Feature 1: Buildspecs — Replace STS assume-role with provider override
-    - plan.yml: generate _pipeline_override.tf with assume_role block, remove STS assume-role
-    - deploy.yml: generate _pipeline_override.tf with assume_role block, remove STS assume-role
-    - destroy.yml: generate _pipeline_override.tf with assume_role block, remove STS assume-role
-    - Remove assume_role from backend.hcl (no longer needed — CodeBuild SR instance profile handles S3)
-    - post_build: rm -f _pipeline_override.tf in all three buildspecs
-    - terraform validate passes for both variants and all examples
-    NOTES: Completed 2026-02-16.
-    All three buildspecs updated. Override file generated via cat + envsubst pattern.
-    Backend config simplified (no assume_role line). Cleanup in post_build.
+[ ] Feature 1: Delete development artifacts
+    - Delete agents/ directory (investigation records)
+    - Delete prd.md (internal PRD)
+    - Delete docs/REFINEMENT_1.md, docs/REFINEMENT_2.md, docs/MULTI_VARIANT_RESTRUCTURE.md
+    - Delete examples/default-dev-destroy/chatbot-teams/ directory (real deployment with hardcoded secrets)
+    NOTES:
 
-[x] Feature 2: IAM — Remove self-assumption
-    - Remove AllowSelfAssumption trust policy statement from CodeBuild SR
-    - Remove self-ARN from AssumeRole permission resource list
-    - terraform validate passes for both variants and all examples
-    NOTES: Completed 2026-02-16.
-    Trust policy simplified to codebuild.amazonaws.com only.
-    AssumeRole resource list now just dev + prod deployment roles.
+[ ] Feature 2: De-identify test configurations
+    - tests/default/main.tf: extract hardcoded values into variables
+    - tests/default-dev-destroy/main.tf: extract hardcoded values into variables
+    - Create tests/default/variables.tf and tests/default-dev-destroy/variables.tf
+    - Create tests/default/terraform.tfvars.example and tests/default-dev-destroy/terraform.tfvars.example with placeholder values
+    - .gitignore already excludes *.tfvars — no change needed
+    NOTES:
 
-[x] Feature 3: Remove STATE_ACCESS_ROLE_ARN env var
-    - Remove from plan-dev, plan-prod, deploy-dev, deploy-prod in core locals.tf
-    - Remove from destroy project in default-dev-destroy/main.tf
-    - terraform validate passes for both variants and all examples
-    NOTES: Completed 2026-02-16.
-    Removed from all 4 core project env_vars and destroy project env_var block.
+[ ] Feature 3: De-identify test-terraform.sh
+    - Change AWS_PROFILE default from "aft-automation" to required (no default)
+    - Use ${AWS_PROFILE:?AWS_PROFILE must be set} pattern
+    NOTES:
 
-[x] Feature 4: Documentation
-    - CLAUDE.md: Updated credential flow description to provider override pattern
-    - progress.txt: Rewritten to reflect new approach
-    NOTES: Completed 2026-02-16.
+[ ] Feature 4: De-identify CLAUDE.md
+    - Replace Test Environment section: remove real account IDs, CLI profiles, org-specific role names
+    - Replace Cross-Account Role Chain diagram with generic version
+    - Remove OttawaCloudConsulting/terraform-test reference
+    - Replace all account IDs (389068787156, 914089393341, 264675080489) with placeholders
+    - Replace org-default-deployment-role with deployment-role throughout
+    - Remove /org/ IAM path references
+    NOTES:
 
-## Verification
-- All 3 modules (core, default, default-dev-destroy) pass terraform validate
-- All 9 examples pass terraform init -backend=false && terraform validate && terraform fmt -check
+[ ] Feature 5: De-identify docs/ARCHITECTURE_AND_DESIGN.md
+    - Replace Test Environment section: remove real account IDs, CLI profiles, org-specific role names
+    - Change POC references in Out of Scope and Design Decisions tables to generic rationale
+    - Replace all account IDs with placeholders
+    - Replace org-default-deployment-role with deployment-role
+    NOTES:
+
+[ ] Feature 6: Clean up README.md
+    - Fix stage counts (currently says 9/10-11, should be 6/7-8 per architecture)
+    - Remove "Migration from Monolithic Module" section (no moved blocks exist in code)
+    - Verify no sensitive values remain
+    NOTES:
+
+[ ] Feature 7: Update .claude/commands/ references
+    - Review start-feature.md, test-terraform.md, create-prd.md for references to deleted files
+    - Update or simplify commands that reference progress.txt and prd.md
+    NOTES:
+
+[ ] Feature 8: Final verification scan
+    - Run grep for all known sensitive values across entire repo
+    - Run terraform fmt -check -recursive
+    - Run terraform init -backend=false && terraform validate on all modules, examples, tests
+    - Confirm zero matches for account IDs, org names, profile names
+    NOTES:
