@@ -25,7 +25,7 @@ provider "aws" {
 # DEV environment is destroyed after PROD tests pass (with approval gate).
 #
 # Pipeline flow (7-8 stages):
-# Source > Pre-Build > DEV (Plan+Deploy) > Test DEV >
+# Source > Pre-Build > DEV (Plan+[Approve]+Deploy) > Test DEV >
 # PROD (Plan+Approve+Deploy) > Test PROD > [Destroy Approval] > Destroy DEV
 module "pipeline" {
   source = "../../../modules/default-dev-destroy"

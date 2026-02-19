@@ -101,6 +101,16 @@ resource "aws_codebuild_project" "destroy" {
       value = var.iac_working_directory
     }
 
+    environment_variable {
+      name  = "TARGET_ENV"
+      value = "dev"
+    }
+
+    environment_variable {
+      name  = "TARGET_ROLE"
+      value = var.dev_deployment_role_arn
+    }
+
   }
 
   source {
@@ -359,18 +369,6 @@ resource "aws_codepipeline" "this" {
 
       configuration = {
         ProjectName = aws_codebuild_project.destroy.name
-        EnvironmentVariables = jsonencode([
-          {
-            name  = "TARGET_ENV"
-            value = "dev"
-            type  = "PLAINTEXT"
-          },
-          {
-            name  = "TARGET_ROLE"
-            value = var.dev_deployment_role_arn
-            type  = "PLAINTEXT"
-          }
-        ])
       }
     }
   }

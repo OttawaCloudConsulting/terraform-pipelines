@@ -3,7 +3,7 @@
 # DEV Smoke Test Script
 # =============================================================================
 # This script runs AFTER terraform apply succeeds in the DEV environment
-# (Stage 6 — Test DEV).
+# (Stage 4 — Test DEV).
 #
 # Common uses:
 #   - Verify deployed resources exist (e.g., aws s3api head-bucket)

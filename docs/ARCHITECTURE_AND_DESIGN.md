@@ -124,19 +124,20 @@ Stages 1-6 identical to Default. Adds:
 ```
 Automation Account (pipeline host)
 └── CodeBuild-<project>-ServiceRole (shared by all 7 projects)
-    ├── Self-assumption (via S3 backend role_arn) → S3 state bucket access
-    └── sts:AssumeRole (first-hop, no chaining) →
+    ├── Instance profile credentials (never overwritten) → S3 state bucket access
+    └── Provider assume_role (via _pipeline_override.tf) →
         ├── DEV deployment role  → terraform plan/apply/destroy (provider operations)
         └── PROD deployment role → terraform plan/apply (provider operations)
 ```
 
-**Split credential model:** Terraform operations require two distinct credential domains:
-- **State operations** (S3 reads/writes, locking) — use the CodeBuild service role via the S3 backend `role_arn` parameter. The role assumes itself to access the state bucket in the Automation account.
-- **Provider operations** (AWS API calls to manage resources) — use the target account deployment role via exported `AWS_*` environment variables.
+**Provider override credential model:** Buildspecs generate a `_pipeline_override.tf` file at runtime containing `provider "aws" { assume_role { ... } }`. Terraform override files merge with the developer's existing provider block, adding cross-account role assumption without modifying developer code.
 
-The S3 backend `role_arn` is passed as `-backend-config="role_arn=${STATE_ACCESS_ROLE_ARN}"` during `terraform init`. This tells Terraform to assume the CodeBuild service role for all state operations, regardless of what credentials are set in the environment. The trust policy uses the account root principal with an `ArnEquals` condition to allow self-assumption without a Terraform chicken-and-egg issue.
+- **State operations** (S3 reads/writes, locking) — use the CodeBuild service role's instance profile credentials directly. No `assume_role` in backend config, no `export AWS_*` to overwrite them.
+- **Provider operations** (AWS API calls to manage resources) — use the target account deployment role via the provider's `assume_role` attribute, injected by the override file.
 
-Plan and Deploy actions for the same environment assume the same cross-account deployment role. Plan needs read access for accurate diffs; Deploy needs write access for apply. Same IAM service role, same trust policy, same STS pattern.
+The override file is generated via `cat <<'EOF'` + `envsubst` to expand `${TARGET_ROLE}` and `${TARGET_ENV}`, then cleaned up in `post_build`. No STS assume-role calls or exported credentials in buildspecs.
+
+Plan and Deploy actions for the same environment use the same cross-account deployment role via the override file. Plan needs read access for accurate diffs; Deploy needs write access for apply.
 
 ## Repository Structure
 
@@ -397,9 +398,9 @@ When `enable_security_scan=false`, neither environment runs the Checkov scan.
 | 13 | No moved blocks (POC) | No deployed pipelines exist. Clean implementation without migration baggage. |
 | 14 | Artifact contains tfplan only | Deploy needs only the saved plan. JSON and Checkov report are consumed within the Plan action. Smaller artifact. |
 | 15 | Keep current file layout | main.tf (CodeBuild + logs), iam.tf, storage.tf, codestar.tf. Minimal diff, familiar structure. |
-| 16 | S3 backend `role_arn` for state access | Buildspecs assume the target account role for provider operations, then pass the CodeBuild service role ARN as `role_arn` backend config. Terraform uses this role for all S3 state operations (read, write, lock). Cleanly separates state credentials from provider credentials without modifying target account roles. |
-| 17 | Account root + ArnEquals for self-assumption | Trust policy uses `arn:aws:iam::<account>:root` as principal with `ArnEquals` condition on the role's own ARN. Avoids the Terraform chicken-and-egg issue of referencing a role ARN in its own trust policy during initial creation. |
-| 18 | STATE_ACCESS_ROLE_ARN as env var | Passed to plan/deploy/destroy projects so buildspecs can reference the role ARN in `-backend-config`. Only added to projects that perform state operations (not prebuild or test). |
+| 16 | Provider override file for cross-account access | Buildspecs generate `_pipeline_override.tf` at runtime with `provider "aws" { assume_role { ... } }`. Terraform merges this with the developer's provider block, injecting cross-account role assumption transparently. No `aws sts assume-role` or `export AWS_*` in buildspecs. |
+| 17 | Instance profile credentials for S3 backend | CodeBuild service role instance profile credentials handle S3 state access directly. No `assume_role` in backend config, no self-assumption needed. Simpler trust policy (only `codebuild.amazonaws.com`). |
+| 18 | envsubst for override file generation | Override file written with `cat <<'EOF'` (no shell expansion) then `envsubst` expands `${TARGET_ROLE}` and `${TARGET_ENV}`. Cleanup via `rm -f` in `post_build`. |
 | 19–30 | Original design decisions preserved | See `docs/shared/` for decisions from the original architecture (encryption, conditional resources, validation, tags, etc.) |
 
 ## Dependency Graph

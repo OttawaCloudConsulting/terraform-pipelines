@@ -3,7 +3,7 @@
 # PROD Smoke Test Script
 # =============================================================================
 # This script runs AFTER terraform apply succeeds in the PROD environment
-# (Stage 9 — Test PROD).
+# (Stage 6 — Test PROD).
 #
 # Common uses:
 #   - Verify deployed resources exist (e.g., aws s3api head-bucket)
