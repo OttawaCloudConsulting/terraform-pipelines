@@ -1,0 +1,59 @@
+# Progress: De-identify Repository for Public Release
+# Source: Plan file (snug-painting-snowglobe.md)
+# Spec: Plan file is the authoritative reference
+
+## Features
+
+[ ] Feature 1: Delete development artifacts
+    - Delete agents/ directory (investigation records)
+    - Delete prd.md (internal PRD)
+    - Delete docs/REFINEMENT_1.md, docs/REFINEMENT_2.md, docs/MULTI_VARIANT_RESTRUCTURE.md
+    - Delete examples/default-dev-destroy/chatbot-teams/ directory (real deployment with hardcoded secrets)
+    NOTES:
+
+[ ] Feature 2: De-identify test configurations
+    - tests/default/main.tf: extract hardcoded values into variables
+    - tests/default-dev-destroy/main.tf: extract hardcoded values into variables
+    - Create tests/default/variables.tf and tests/default-dev-destroy/variables.tf
+    - Create tests/default/terraform.tfvars.example and tests/default-dev-destroy/terraform.tfvars.example with placeholder values
+    - .gitignore already excludes *.tfvars — no change needed
+    NOTES:
+
+[ ] Feature 3: De-identify test-terraform.sh
+    - Change AWS_PROFILE default from "aft-automation" to required (no default)
+    - Use ${AWS_PROFILE:?AWS_PROFILE must be set} pattern
+    NOTES:
+
+[ ] Feature 4: De-identify CLAUDE.md
+    - Replace Test Environment section: remove real account IDs, CLI profiles, org-specific role names
+    - Replace Cross-Account Role Chain diagram with generic version
+    - Remove OttawaCloudConsulting/terraform-test reference
+    - Replace all account IDs (389068787156, 914089393341, 264675080489) with placeholders
+    - Replace org-default-deployment-role with deployment-role throughout
+    - Remove /org/ IAM path references
+    NOTES:
+
+[ ] Feature 5: De-identify docs/ARCHITECTURE_AND_DESIGN.md
+    - Replace Test Environment section: remove real account IDs, CLI profiles, org-specific role names
+    - Change POC references in Out of Scope and Design Decisions tables to generic rationale
+    - Replace all account IDs with placeholders
+    - Replace org-default-deployment-role with deployment-role
+    NOTES:
+
+[ ] Feature 6: Clean up README.md
+    - Fix stage counts (currently says 9/10-11, should be 6/7-8 per architecture)
+    - Remove "Migration from Monolithic Module" section (no moved blocks exist in code)
+    - Verify no sensitive values remain
+    NOTES:
+
+[ ] Feature 7: Update .claude/commands/ references
+    - Review start-feature.md, test-terraform.md, create-prd.md for references to deleted files
+    - Update or simplify commands that reference progress.txt and prd.md
+    NOTES:
+
+[ ] Feature 8: Final verification scan
+    - Run grep for all known sensitive values across entire repo
+    - Run terraform fmt -check -recursive
+    - Run terraform init -backend=false && terraform validate on all modules, examples, tests
+    - Confirm zero matches for account IDs, org names, profile names
+    NOTES:

@@ -1,0 +1,46 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "mcp__aws-knowledge-mcp__aws___search_documentation",
+      "mcp__aws-knowledge-mcp__aws___read_documentation",
+      "mcp__awslabs-aws-documentation-mcp-server__read_documentation",
+      "mcp__awslabs-aws-documentation-mcp-server__search_documentation",
+      "Bash(terraform init:*)",
+      "Bash(terraform --version:*)",
+      "Bash(/opt/homebrew/Cellar/terraform/1.14.5/bin/terraform:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)",
+      "Bash(terraform validate:*)",
+      "Bash(terraform fmt:*)",
+      "Bash(git secrets:*)",
+      "Bash(tflint:*)",
+      "Bash(cd:*)",
+      "Bash(bash -n:*)",
+      "Bash(bash:*)",
+      "Bash(AWS_PROFILE=aft-automation aws sts:*)",
+      "Bash(AWS_PROFILE=aft-automation aws codepipeline:*)",
+      "Bash(AWS_PROFILE=aft-automation aws codestar-connections:*)",
+      "Bash(gh api:*)",
+      "Bash(terraform:*)",
+      "Bash(AWS_PROFILE=aft-automation terraform:*)",
+      "Bash(AWS_PROFILE=aft-automation aws logs:*)",
+      "Bash(AWS_PROFILE=developer-account aws sts:*)",
+      "Bash(AWS_PROFILE=network aws iam:*)",
+      "Bash(AWS_PROFILE=aft-automation aws s3api list-buckets:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(directory\". Using $CODEBUILD_SRC_DIR as the base path makes all cd\ncommands deterministic regardless of inherited working directory state.\n\nFixes #4\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(gh issue close:*)",
+      "Bash(for dir in modules/core modules/default modules/default-dev-destroy)",
+      "Bash(do echo \"=== $dir ===\")",
+      "Bash(done)",
+      "Bash(for dir in examples/default/minimal examples/default/complete examples/default/opentofu examples/default/single-account examples/default-dev-destroy/minimal)",
+      "Bash(for dir in tests/default tests/default-dev-destroy)"
+    ]
+  },
+  "enabledMcpjsonServers": []
+}
