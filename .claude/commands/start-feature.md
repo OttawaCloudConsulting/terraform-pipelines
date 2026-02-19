@@ -55,5 +55,5 @@ Ready to begin implementation.
 
 - **Never skip reading progress.txt** — it is the source of truth for what to work on
 - **Never start a feature if another is `[~]`** — one feature at a time
-- **Do not begin implementation** — this skill only sets up context. Wait for user direction after reporting.
+- **Automatically begin implementation** — this skill sets up context so we can automatically proceed with implementation.
 - **Follow prd.md exactly** — architecture decisions are defined there, not improvised

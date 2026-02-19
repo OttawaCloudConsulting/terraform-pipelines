@@ -1,17 +1,19 @@
-# Architecture and Design: Multi-Variant Terraform Pipeline Repository
+# Architecture and Design: Per-Environment Plan-Apply Pipeline
 
 ## Overview
 
-This repository provides a family of reusable Terraform modules that provision AWS CodePipeline V2 + CodeBuild CI/CD pipelines for deploying Terraform (or OpenTofu) infrastructure. Each variant serves a distinct deployment pattern while sharing a common core of infrastructure resources.
+This repository provides reusable Terraform modules that provision AWS CodePipeline V2 + CodeBuild CI/CD pipelines for deploying Terraform (or OpenTofu) infrastructure across a multi-account AWS Control Tower environment. Each pipeline instance is 1:1 with a Terraform project.
 
-The authoritative requirements are in `prd.md`. The original MVP scope is defined in `docs/shared/codepipeline-mvp-statement.md`.
+The pipeline follows a **per-environment plan-apply** model: each environment (DEV, PROD) is a consolidated pipeline stage containing ordered actions — Plan (with environment-specific tfvars and real state), optional Approval, and Deploy (from saved plan). This guarantees that the plan reviewed is exactly the plan applied.
+
+The authoritative requirements are in `prd.md`. The original refinement analysis is in `docs/REFINEMENT_1.md`. The original MVP scope is in `docs/shared/codepipeline-mvp-statement.md`.
 
 ### Variant Summary
 
 | Variant | Module Source | Stages | Account Model | Use Case |
 |---------|-------------|--------|---------------|----------|
-| **Default** | `modules/default/` | 9 | 3 accounts (Automation + DEV + PROD) | Standard cross-account deployment. Also supports single-account when `dev_account_id == prod_account_id`. |
-| **Default-DevDestroy** | `modules/default-dev-destroy/` | 10–11 | 3 accounts (Automation + DEV + PROD) | Cross-account with ephemeral DEV |
+| **Default** | `modules/default/` | 6 | 3 accounts (Automation + DEV + PROD) | Standard cross-account deployment. Also supports single-account when `dev_account_id == prod_account_id`. |
+| **Default-DevDestroy** | `modules/default-dev-destroy/` | 7–8 | 3 accounts (Automation + DEV + PROD) | Cross-account with ephemeral DEV teardown after PROD success. |
 
 ## Module Architecture
 
@@ -25,9 +27,9 @@ The authoritative requirements are in `prd.md`. The original MVP scope is define
 │     source = "modules/<variant>"   # default | default-dev-destroy   │
 │     ...                                                             │
 │   }                                                                 │
-└───────────┬─────────────────────────────────┬──────────────────────┘
-            │                                 │
-            ▼                                 ▼
+└───────────┬─────────────────────────────────────┬──────────────────┘
+            │                                     │
+            ▼                                     ▼
 ┌───────────────────────┐    ┌────────────────────────────────────────┐
 │   Variant Wrapper     │    │   Variant Wrapper creates:             │
 │   (e.g. default/)     │    │   - CodePipeline V2 (stage config)    │
@@ -45,8 +47,8 @@ The authoritative requirements are in `prd.md`. The original MVP scope is define
 │   - S3 State Bucket (conditional) + Artifact Bucket                  │
 │   - SNS Approval Topic + Email Subscriptions                         │
 │   - CodeStar Connection (conditional)                                 │
-│   - 4 CloudWatch Log Groups (prebuild, plan, deploy, test)           │
-│   - 4 CodeBuild Projects (prebuild, plan, deploy, test)              │
+│   - 7 CloudWatch Log Groups (prebuild + 6 per-env)                  │
+│   - 7 CodeBuild Projects (prebuild + 6 per-env)                     │
 │                                                                       │
 │   Outputs:                                                            │
 │   - All resource ARNs, names, and IDs for variant wiring             │
@@ -55,79 +57,87 @@ The authoritative requirements are in `prd.md`. The original MVP scope is define
 
 ### Resource Ownership
 
-| Resource | Owner | Notes |
-|----------|-------|-------|
-| IAM Roles + Policies (x2) | Core | CodePipeline SR + CodeBuild SR |
-| S3 State Bucket (conditional) | Core | Shared state storage |
-| S3 Artifact Bucket | Core | Pipeline artifacts |
-| SNS Approval Topic | Core | Approval notifications |
-| CodeStar Connection (conditional) | Core | GitHub integration |
-| CloudWatch Log Groups (x4) | Core | prebuild, plan, deploy, test |
-| CodeBuild Projects (x4) | Core | prebuild, plan, deploy, test |
-| CodePipeline V2 | Variant | Stage definitions are variant-specific |
-| Destroy CodeBuild Project | Variant (default-dev-destroy only) | 5th CodeBuild project + log group |
-| Destroy Buildspec | Variant (default-dev-destroy only) | `buildspecs/destroy.yml` |
+| Resource | Owner | Count | Notes |
+|----------|-------|-------|-------|
+| IAM Roles + Policies (x2) | Core | 2 | CodePipeline SR + CodeBuild SR |
+| S3 State Bucket (conditional) | Core | 0-1 | Shared state storage |
+| S3 Artifact Bucket | Core | 1 | Pipeline artifacts + plan files |
+| SNS Approval Topic | Core | 1 | Approval notifications |
+| CodeStar Connection (conditional) | Core | 0-1 | GitHub integration |
+| CloudWatch Log Groups | Core | 7 | prebuild, plan-dev, plan-prod, deploy-dev, deploy-prod, test-dev, test-prod |
+| CodeBuild Projects | Core | 7 | prebuild, plan-dev, plan-prod, deploy-dev, deploy-prod, test-dev, test-prod |
+| CodePipeline V2 | Variant | 1 | Stage definitions are variant-specific |
+| Destroy CodeBuild Project | Variant (DevDestroy only) | 0-1 | `<project>-destroy` + log group |
 
 ### Core Module Outputs
 
-The core module exposes a comprehensive set of outputs for variant wrappers:
-
 | Output | Type | Purpose |
 |--------|------|---------|
-| `codebuild_project_names` | `map(string)` | CodeBuild project names for pipeline stage actions |
+| `codebuild_project_names` | `map(string)` | Keys: prebuild, plan-dev, plan-prod, deploy-dev, deploy-prod, test-dev, test-prod |
 | `codebuild_service_role_arn` | `string` | For variant-created CodeBuild projects (destroy) |
 | `codepipeline_service_role_arn` | `string` | For CodePipeline resource |
 | `artifact_bucket_name` | `string` | For CodePipeline artifact store |
 | `state_bucket_name` | `string` | Pass-through to consumer |
-| `sns_topic_arn` | `string` | For approval stage actions |
+| `sns_topic_arn` | `string` | For approval actions |
 | `codestar_connection_arn` | `string` | For source stage action |
 | `log_group_arns` | `map(string)` | Log group ARNs for reference |
 | `pipeline_url_prefix` | `string` | AWS Console URL prefix for pipeline URLs |
-| `project_name` | `string` | Project name pass-through for variant outputs |
+| `project_name` | `string` | Project name pass-through |
 | `dev_account_id` | `string` | DEV account ID pass-through |
 | `prod_account_id` | `string` | PROD account ID pass-through |
 | `all_tags` | `map(string)` | Merged tags for variant-owned resources |
 
 ## Variant Architectures
 
-### Default Variant (9 Stages)
-
-Identical to the original monolithic module. Three-account model with cross-account role assumption.
+### Default Variant (6 Stages)
 
 ```
-Source → Pre-Build → Plan+Scan → [Optional Review] → Deploy DEV → Test DEV → Mandatory Approval → Deploy PROD → Test PROD
+Source → Pre-Build → DEV [Plan→Approve→Deploy] → Test DEV → PROD [Plan→Approve→Deploy] → Test PROD
 ```
 
-**Account model:**
-- Automation Account: Pipeline, CodeBuild, S3, SNS, IAM
-- DEV Account: Deployment role (pre-existing), target infrastructure
-- PROD Account: Deployment role (pre-existing), target infrastructure
-
-**Cross-account credential flow:**
-CodeBuild SR → `sts:AssumeRole` (first-hop) → Target account deployment role
-
-### Default-DevDestroy Variant (10–11 Stages)
-
-Extends Default with a DEV teardown stage after PROD tests pass. Optionally includes a manual approval gate before the destroy.
-
+**Stage 3 (DEV) internal actions:**
 ```
-Source → Pre-Build → Plan+Scan → [Optional Review] → Deploy DEV → Test DEV → Mandatory Approval → Deploy PROD → Test PROD → [Optional Destroy Approval] → Destroy DEV
+run_order=1: PlanDEV        (CodeBuild: plan-dev, output: dev_plan_output)
+run_order=2: ApproveDEV     (Manual Approval, conditional on enable_review_gate)
+run_order=3: DeployDEV      (CodeBuild: deploy-dev, input: dev_plan_output)
 ```
 
-**Additional resources (variant-owned):**
-- 1 CodeBuild Project: `<project>-destroy` — runs `terraform destroy` against DEV
-- 1 CloudWatch Log Group: `/codebuild/<project>-destroy`
+**Stage 5 (PROD) internal actions:**
+```
+run_order=1: PlanPROD       (CodeBuild: plan-prod, output: prod_plan_output)
+run_order=2: ApprovePROD    (Manual Approval, mandatory, SNS notification)
+run_order=3: DeployPROD     (CodeBuild: deploy-prod, input: prod_plan_output)
+```
 
-**Destroy stage details:**
-- Uses the same CodeBuild service role from core (no new IAM role)
-- Assumes DEV deployment role via `sts:AssumeRole`
-- Runs `terraform init` + `terraform destroy -auto-approve` against DEV state
-- Buildspec: `modules/default-dev-destroy/buildspecs/destroy.yml`
+### Default-DevDestroy Variant (7-8 Stages)
 
-**Optional approval gate:**
-- Controlled by `enable_destroy_approval` variable (default: `true` — safe by default)
-- When enabled, inserts a manual approval stage before the destroy stage
-- Uses the same SNS topic as the mandatory PROD approval
+```
+Source → Pre-Build → DEV [Plan→Approve→Deploy] → Test DEV → PROD [Plan→Approve→Deploy] → Test PROD → [Destroy Approval] → Destroy DEV
+```
+
+Stages 1-6 identical to Default. Adds:
+- Stage 7 (optional): Destroy Approval — controlled by `enable_destroy_approval` (default: `true`)
+- Stage 7/8: Destroy DEV — `terraform destroy` against DEV state via cross-account role
+
+### Cross-Account Credential Flow
+
+```
+Automation Account (pipeline host)
+└── CodeBuild-<project>-ServiceRole (shared by all 7 projects)
+    ├── Instance profile credentials (never overwritten) → S3 state bucket access
+    └── Provider assume_role (via _pipeline_override.tf) →
+        ├── DEV deployment role  → terraform plan/apply/destroy (provider operations)
+        └── PROD deployment role → terraform plan/apply (provider operations)
+```
+
+**Provider override credential model:** Buildspecs generate a `_pipeline_override.tf` file at runtime containing `provider "aws" { assume_role { ... } }`. Terraform override files merge with the developer's existing provider block, adding cross-account role assumption without modifying developer code.
+
+- **State operations** (S3 reads/writes, locking) — use the CodeBuild service role's instance profile credentials directly. No `assume_role` in backend config, no `export AWS_*` to overwrite them.
+- **Provider operations** (AWS API calls to manage resources) — use the target account deployment role via the provider's `assume_role` attribute, injected by the override file.
+
+The override file is generated via `cat <<'EOF'` + `envsubst` to expand `${TARGET_ROLE}` and `${TARGET_ENV}`, then cleaned up in `post_build`. No STS assume-role calls or exported credentials in buildspecs.
+
+Plan and Deploy actions for the same environment use the same cross-account deployment role via the override file. Plan needs read access for accurate diffs; Deploy needs write access for apply.
 
 ## Repository Structure
 
@@ -135,28 +145,28 @@ Source → Pre-Build → Plan+Scan → [Optional Review] → Deploy DEV → Test
 terraform-pipelines/
 ├── modules/
 │   ├── core/                          # Internal shared module
-│   │   ├── main.tf                    # CodeBuild projects (x4), CloudWatch log groups (x4)
+│   │   ├── main.tf                    # CodeBuild projects (x7) + CloudWatch log groups (x7) via for_each
 │   │   ├── iam.tf                     # IAM roles + policies (CodePipeline SR, CodeBuild SR)
 │   │   ├── storage.tf                 # S3 buckets, SNS topic, subscriptions
 │   │   ├── codestar.tf                # CodeStar Connection (conditional)
 │   │   ├── variables.tf               # All inputs needed by core resources
 │   │   ├── outputs.tf                 # All resource references for variant wrappers
-│   │   ├── locals.tf                  # Computed values
+│   │   ├── locals.tf                  # Computed values including project config map
 │   │   ├── versions.tf                # Terraform >= 1.11, AWS ~> 6.0
 │   │   └── buildspecs/               # Shared buildspec files
 │   │       ├── prebuild.yml
-│   │       ├── plan.yml
-│   │       ├── deploy.yml
+│   │       ├── plan.yml               # Per-env plan + security scan
+│   │       ├── deploy.yml             # Apply from saved plan
 │   │       └── test.yml
 │   │
 │   ├── default/                       # Default variant wrapper
-│   │   ├── main.tf                    # module "core" + CodePipeline (9 stages)
+│   │   ├── main.tf                    # module "core" + CodePipeline (6 stages)
 │   │   ├── variables.tf               # Uniform interface
 │   │   ├── outputs.tf                 # Uniform outputs
 │   │   └── versions.tf
 │   │
 │   └── default-dev-destroy/           # Default-DevDestroy variant wrapper
-│       ├── main.tf                    # module "core" + CodePipeline (10-11 stages) + destroy CB project
+│       ├── main.tf                    # module "core" + CodePipeline (7-8 stages) + destroy project
 │       ├── variables.tf               # Uniform interface + enable_destroy_approval
 │       ├── outputs.tf                 # Uniform outputs
 │       ├── versions.tf
@@ -165,244 +175,291 @@ terraform-pipelines/
 │
 ├── examples/
 │   ├── default/
-│   │   ├── minimal/                   # Required variables only
-│   │   ├── complete/                  # All variables with production overrides
-│   │   ├── opentofu/                  # OpenTofu runtime example
-│   │   └── single-account/            # Same-account DEV/PROD deployment
+│   │   ├── minimal/
+│   │   ├── complete/
+│   │   ├── opentofu/
+│   │   └── single-account/
 │   └── default-dev-destroy/
 │       └── minimal/
 │
-├── tests/
-│   ├── test-terraform.sh              # Validation + deploy test script
-│   ├── default/                       # Default variant validation
-│   └── default-dev-destroy/           # Default-dev-destroy variant validation
-│
 ├── docs/
-│   ├── ARCHITECTURE_AND_DESIGN.md     # This file (high-level multi-variant architecture)
-│   ├── shared/                        # Core module docs + shared assets
-│   │   ├── codepipeline-mvp-statement.md  # Original MVP specification
-│   │   └── diagrams/                  # Architecture diagrams (PNG)
-│   │       ├── three-account-model.png
-│   │       ├── pipeline-stages.png
-│   │       ├── pipeline-sequence.png
-│   │       ├── pipeline-sequence-flow.png
-│   │       ├── artifact-flow.png
-│   │       ├── resource-dependencies.png
-│   │       └── cross-account-credentials.png
-│   ├── default/                       # Default variant-specific docs
-│   └── default-dev-destroy/          # Default-dev-destroy variant-specific docs
+│   ├── ARCHITECTURE_AND_DESIGN.md     # This file
+│   ├── REFINEMENT_1.md                # Historical: refinement analysis
+│   ├── shared/
+│   │   ├── codepipeline-mvp-statement.md
+│   │   └── diagrams/
+│   ├── default/
+│   └── default-dev-destroy/
 │
 ├── CLAUDE.md
-├── README.md
-├── CHANGELOG.md
 ├── prd.md
-├── progress.txt
-└── .gitignore
+└── progress.txt
 ```
 
 ## Buildspec Strategy
 
-Shared buildspecs live in `modules/core/buildspecs/`. All variants reference these via `file("${path.module}/../core/buildspecs/<name>.yml")`.
+### Shared Buildspecs (core)
 
-Variant-specific buildspecs live in the variant's own `buildspecs/` directory. The Default-DevDestroy variant adds `destroy.yml`.
+| Buildspec | Used By | Key Changes |
+|-----------|---------|-------------|
+| `prebuild.yml` | All variants (Stage 2) | Unchanged — not environment-specific |
+| `plan.yml` | All variants (DEV + PROD stages, Plan action) | Rewritten: cross-account role assumption, per-env state, tfvars, integrated Checkov |
+| `deploy.yml` | All variants (DEV + PROD stages, Deploy action) | Rewritten: applies saved tfplan artifact instead of re-planning |
+| `test.yml` | All variants (Test DEV + Test PROD stages) | Unchanged — already accepts TARGET_ENV |
 
-| Buildspec | Location | Used By |
-|-----------|----------|---------|
-| `prebuild.yml` | `modules/core/buildspecs/` | All variants (Stage 2) |
-| `plan.yml` | `modules/core/buildspecs/` | All variants (Stage 3) |
-| `deploy.yml` | `modules/core/buildspecs/` | All variants (Stages 5, 8) |
-| `test.yml` | `modules/core/buildspecs/` | All variants (Stages 6, 9) |
-| `destroy.yml` | `modules/default-dev-destroy/buildspecs/` | Default-DevDestroy only (Stage 10/11) |
+### Variant-Specific Buildspecs
+
+| Buildspec | Used By | Notes |
+|-----------|---------|-------|
+| `destroy.yml` | Default-DevDestroy only (Destroy DEV stage) | Unchanged — already targets DEV only |
+
+### plan.yml Flow
+
+```
+INSTALL:
+  - Install IaC runtime (terraform or opentofu)
+  - Install Checkov (if ENABLE_SECURITY_SCAN=true)
+
+BUILD:
+  - cd to IAC_WORKING_DIR (anchored to CODEBUILD_SRC_DIR)
+  - Assume cross-account role (TARGET_ROLE)
+  - terraform init with real env state (${STATE_KEY_PREFIX}/${TARGET_ENV}/terraform.tfstate)
+  - terraform plan -out=tfplan [-var-file=environments/${TARGET_ENV}.tfvars]
+  - If ENABLE_SECURITY_SCAN=true:
+    - terraform show -json tfplan > tfplan.json
+    - checkov scan on tfplan.json (soft-fail per CHECKOV_SOFT_FAIL)
+
+ARTIFACTS:
+  - tfplan (consumed by Deploy action)
+```
+
+### deploy.yml Flow
+
+```
+INSTALL:
+  - Install IaC runtime (terraform or opentofu)
+
+BUILD:
+  - cd to IAC_WORKING_DIR (anchored to CODEBUILD_SRC_DIR)
+  - Assume cross-account role (TARGET_ROLE)
+  - terraform init with real env state
+  - terraform apply tfplan (saved plan from Plan action artifact)
+```
+
+## Core Module — for_each Design
+
+The 7 CodeBuild projects and 7 CloudWatch log groups are created via `for_each` over a local configuration map. This eliminates repetitive resource blocks while maintaining clear per-project configuration.
+
+### Project Configuration Map
+
+```hcl
+locals {
+  codebuild_projects = {
+    prebuild = {
+      description = "Pre-build stage"
+      buildspec   = file("${path.module}/buildspecs/prebuild.yml")
+      env_vars    = { PROJECT_NAME = var.project_name, IAC_RUNTIME = var.iac_runtime, IAC_VERSION = var.iac_version }
+    }
+    plan-dev = {
+      description = "Plan DEV environment"
+      buildspec   = file("${path.module}/buildspecs/plan.yml")
+      env_vars    = {
+        PROJECT_NAME        = var.project_name
+        IAC_RUNTIME         = var.iac_runtime
+        IAC_VERSION         = var.iac_version
+        IAC_WORKING_DIR     = var.iac_working_directory
+        STATE_BUCKET        = local.state_bucket_name
+        STATE_KEY_PREFIX    = local.state_key_prefix
+        TARGET_ENV          = "dev"
+        TARGET_ROLE         = var.dev_deployment_role_arn
+        ENABLE_SECURITY_SCAN = tostring(var.enable_security_scan)
+        CHECKOV_SOFT_FAIL   = tostring(var.checkov_soft_fail)
+      }
+    }
+    plan-prod = {
+      description = "Plan PROD environment"
+      buildspec   = file("${path.module}/buildspecs/plan.yml")
+      env_vars    = {
+        # ... same as plan-dev but:
+        TARGET_ENV        = "prod"
+        TARGET_ROLE       = var.prod_deployment_role_arn
+        CHECKOV_SOFT_FAIL = "false"  # PROD always hard-fails
+      }
+    }
+    deploy-dev = {
+      description = "Deploy to DEV environment"
+      buildspec   = file("${path.module}/buildspecs/deploy.yml")
+      env_vars    = {
+        # ... TARGET_ENV = "dev", TARGET_ROLE = var.dev_deployment_role_arn, state config ...
+      }
+    }
+    deploy-prod = { ... }  # TARGET_ENV = "prod"
+    test-dev    = { ... }  # TARGET_ENV = "dev"
+    test-prod   = { ... }  # TARGET_ENV = "prod"
+  }
+}
+```
+
+### Resource Iteration
+
+```hcl
+resource "aws_cloudwatch_log_group" "this" {
+  for_each          = local.codebuild_projects
+  name              = "/codebuild/${var.project_name}-${each.key}"
+  retention_in_days = var.log_retention_days
+  tags              = local.all_tags
+}
+
+resource "aws_codebuild_project" "this" {
+  for_each       = local.codebuild_projects
+  name           = "${var.project_name}-${each.key}"
+  description    = each.value.description
+  service_role   = aws_iam_role.codebuild.arn
+  build_timeout  = var.codebuild_timeout_minutes
+  # ... environment variables from each.value.env_vars
+  # ... logs_config referencing aws_cloudwatch_log_group.this[each.key]
+}
+```
+
+## Artifact Flow Detail
+
+### Within a Consolidated Environment Stage
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Stage: DEV                                                   │
+│                                                              │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐   │
+│  │ Plan DEV     │    │ Approve DEV  │    │ Deploy DEV   │   │
+│  │ run_order=1  │───►│ run_order=2  │───►│ run_order=3  │   │
+│  │              │    │ (optional)   │    │              │   │
+│  │ output:      │    │              │    │ input:       │   │
+│  │ dev_plan_out │    │ BLOCKS until │    │ dev_plan_out │   │
+│  └──────────────┘    │ approved     │    └──────────────┘   │
+│                      └──────────────┘                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+The Plan action's `output_artifacts` produces `dev_plan_output` containing the `tfplan` file. The Deploy action's `input_artifacts` consumes `dev_plan_output`. The Approval action (when present) blocks between them.
+
+### Plan Artifact Contents
+
+The plan artifact contains only the `tfplan` binary file. The `tfplan.json` and `checkov-report.xml` are consumed within the Plan action and not passed downstream.
+
+```yaml
+# plan.yml artifacts section
+artifacts:
+  files:
+    - tfplan
+  base-directory: "${IAC_WORKING_DIR}"  # or CODEBUILD_SRC_DIR/IAC_WORKING_DIR
+  discard-paths: "yes"
+```
 
 ## Security Model
 
-All security controls from the original monolithic module are preserved in the core module. See `docs/shared/` for the detailed security model including:
+### Checkov Scan Policy
 
-- AWS Security Hub controls alignment (CodeBuild.1–5)
-- CodePipeline security best practices
-- Well-Architected pipeline security (SEC11-BP07)
-- Encryption at rest (SSE-S3, KMS for SNS)
-- Cross-account credential flow (STS AssumeRole, first-hop, no chaining)
-- S3 access control (SSL-only, Block Public Access)
-- IAM least privilege (scoped to exact deployment role ARNs)
-- SCP compatibility
+| Environment | `enable_security_scan=true` | `checkov_soft_fail=true` | `checkov_soft_fail=false` |
+|-------------|---------------------------|-------------------------|--------------------------|
+| DEV | Scan runs, soft-fail (advisory) | Scan runs, soft-fail | Scan runs, hard-fail |
+| PROD | Scan runs, **always hard-fail** | Scan runs, **always hard-fail** | Scan runs, hard-fail |
 
-### Destroy Stage Security (Default-DevDestroy)
+When `enable_security_scan=false`, neither environment runs the Checkov scan.
 
-- Uses the same CodeBuild service role from core — no privilege escalation
-- Assumes DEV deployment role via `sts:AssumeRole` — same credential flow as deploy
-- `terraform destroy -auto-approve` runs only after PROD tests pass (Stage 9 success)
-- Optional `enable_destroy_approval` gate adds human oversight for destructive action
-- Destroy is limited to DEV environment only — PROD is never destroyed by the pipeline
+### Encryption
 
-## Input Variables (Uniform Interface)
+- S3 artifact bucket: SSE-S3 encryption, SSL-only policy, Block Public Access
+- S3 state bucket: SSE-S3 encryption, versioning enabled, SSL-only policy
+- Plan artifacts (tfplan files): same SSE-S3 protection as all pipeline artifacts
+- SNS topic: KMS encryption
 
-All variants expose the same base variable interface. See `prd.md` for the complete variable table.
+### IAM Least Privilege
 
-**Required (6):** `project_name`, `github_repo`, `dev_account_id`, `dev_deployment_role_arn`, `prod_account_id`, `prod_deployment_role_arn`
-
-**Optional (18):** `github_branch`, `iac_runtime`, `iac_version`, `codestar_connection_arn`, `create_state_bucket`, `state_bucket`, `state_key_prefix`, `sns_subscribers`, `enable_review_gate`, `codebuild_compute_type`, `codebuild_image`, `checkov_soft_fail`, `codebuild_timeout_minutes`, `logging_bucket`, `logging_prefix`, `log_retention_days`, `artifact_retention_days`, `tags`
-
-**Variant-specific:** Default-DevDestroy adds `enable_destroy_approval` (bool, default: true)
+- CodeBuild service role: scoped to specific deployment role ARNs, specific S3 buckets, specific log groups
+- CodePipeline service role: scoped to specific CodeBuild projects, specific S3 buckets, specific SNS topics
+- Cross-account deployment roles: pre-existing, not managed by pipeline
 
 ## Design Decisions
 
 | # | Decision | Rationale |
 |---|----------|-----------|
-| 1 | Shared core + overlay pattern | Eliminates duplication of IAM, S3, CodeBuild, logging across variants. Core changes propagate to all variants. |
-| 2 | Core is internal only | Prevents consumers from bypassing variant abstractions. Variants provide the stable API. |
-| 3 | Variants own CodePipeline | Stage configurations are the primary differentiator between variants. Keeping CodePipeline in the variant gives full control over stage composition. |
-| 4 | Uniform variable interface | Consumers can switch variants without changing their variable definitions. Reduces migration friction. |
-| 5 | Separate module calls (not variant variable) | Each variant is a distinct module source. Avoids complex conditional logic within a single module. Clearer separation of concerns. |
-| 6 | Destroy CodeBuild project owned by variant | Only Default-DevDestroy needs it. Keeps core module clean and avoids conditional resource complexity for a single-variant concern. |
-| 7 | Destroy reuses CodeBuild service role from core | Same permissions are needed (sts:AssumeRole to DEV deployment role). No benefit to a restricted role since destroy requires the same S3/state/logs access. |
-| 8 | State key isolation for Single-Account | Same-account DEV/PROD isolation via `<project>/dev/terraform.tfstate` vs `<project>/prod/terraform.tfstate`. Simplest isolation mechanism when accounts are the same. |
-| 9 | Consumer still provides role ARNs for Single-Account | Maintains least-privilege even within a single account. CodeBuild assumes a scoped deployment role rather than using its service role for everything. |
-| 10 | Configurable destroy approval gate | Default is approval required (safe by default). `enable_destroy_approval = false` enables auto-destroy after PROD success for teams that want fully automated ephemeral DEV. |
-| 11 | Per-variant examples and tests | Each variant gets its own examples/ and tests/ subdirectory. Ensures variant-specific behavior is validated independently. |
-| 12 | Nested docs structure | `docs/shared/` for core, `docs/<variant>/` for variant-specific docs. Mirrors the module structure and scales with new variants. |
-| 13–24 | Original design decisions preserved | See `docs/shared/` for decisions #13–24 from the original architecture document (encryption strategy, conditional resources, validation blocks, tag patterns, etc.) |
+| 1 | Per-environment plan-apply flow | Guarantees the plan reviewed is the plan applied. Eliminates drift between review and deploy. |
+| 2 | Consolidated stages with run_order | Reduces stage count (9→6). Each environment is a logical unit. Approval action blocks deploy within the same stage. |
+| 3 | Deploy re-initializes then applies plan | Plan artifact carries only tfplan file (small). Deploy runs terraform init independently for clean backend setup. Avoids large artifacts with .terraform directory. |
+| 4 | for_each for CodeBuild projects + log groups | 7 projects defined via local config map instead of 7 repetitive resource blocks. Easier to maintain and extend. |
+| 5 | Per-environment CodeBuild projects | Required for per-environment CloudWatch log groups. Log group is set on the project, not per build invocation. |
+| 6 | Core loads its own buildspecs | Core uses `file("${path.module}/buildspecs/...")`. Variants that need different buildspecs (destroy) create their own projects outside core. Keeps core interface clean. |
+| 7 | One shared CodeBuild IAM service role | All 7 projects share one role. Same permissions needed (STS AssumeRole to both DEV and PROD deployment roles). No benefit to separate roles. |
+| 8 | PROD Checkov always hard-fails | `checkov_soft_fail` controls DEV only. PROD security scan is never advisory. Prevents accidental production deployment with security findings. |
+| 9 | `enable_security_scan` defaults to true | Secure by default. Consumers opt out explicitly. |
+| 10 | `enable_review_gate` repurposed for DEV | PROD approval is always mandatory. The existing toggle now controls the optional DEV approval action within the DEV stage. |
+| 11 | Remove throwaway plan state path | The `plan/terraform.tfstate` path served no purpose beyond initializing providers for the old environment-agnostic plan. Per-env plans use real state. |
+| 12 | Always proceed on empty plan | Even with zero changes, pipeline runs through Approve and Deploy (apply is a no-op). Avoids custom logic to signal downstream actions. Consistent flow. |
+| 13 | No moved blocks (POC) | No deployed pipelines exist. Clean implementation without migration baggage. |
+| 14 | Artifact contains tfplan only | Deploy needs only the saved plan. JSON and Checkov report are consumed within the Plan action. Smaller artifact. |
+| 15 | Keep current file layout | main.tf (CodeBuild + logs), iam.tf, storage.tf, codestar.tf. Minimal diff, familiar structure. |
+| 16 | Provider override file for cross-account access | Buildspecs generate `_pipeline_override.tf` at runtime with `provider "aws" { assume_role { ... } }`. Terraform merges this with the developer's provider block, injecting cross-account role assumption transparently. No `aws sts assume-role` or `export AWS_*` in buildspecs. |
+| 17 | Instance profile credentials for S3 backend | CodeBuild service role instance profile credentials handle S3 state access directly. No `assume_role` in backend config, no self-assumption needed. Simpler trust policy (only `codebuild.amazonaws.com`). |
+| 18 | envsubst for override file generation | Override file written with `cat <<'EOF'` (no shell expansion) then `envsubst` expands `${TARGET_ROLE}` and `${TARGET_ENV}`. Cleanup via `rm -f` in `post_build`. |
+| 19–30 | Original design decisions preserved | See `docs/shared/` for decisions from the original architecture (encryption, conditional resources, validation, tags, etc.) |
 
-## Deployment Workflow
+## Dependency Graph
 
-### Consumer Usage (Default Variant)
+### Resource Creation Order
 
-```hcl
-module "my_pipeline" {
-  source = "git::https://github.com/org/terraform-pipelines.git//modules/default"
-
-  project_name             = "my-project"
-  github_repo              = "my-org/my-project"
-  dev_account_id           = "222222222222"
-  dev_deployment_role_arn  = "arn:aws:iam::222222222222:role/TerraformDeploy-dev"
-  prod_account_id          = "333333333333"
-  prod_deployment_role_arn = "arn:aws:iam::333333333333:role/TerraformDeploy-prod"
-}
 ```
+1. Independent (parallel):
+   ├── S3 State Bucket (conditional)
+   ├── S3 Artifact Bucket
+   ├── SNS Topic + Subscriptions
+   ├── CodeStar Connection (conditional)
+   └── CloudWatch Log Groups (x7)
 
-### Consumer Usage (Single-Account via Default Variant)
+2. Depends on buckets + log groups:
+   └── IAM Roles + Policies (x2)
+       ├── References: bucket ARNs, log group ARNs, deployment role ARNs
+       └── References: additional_codebuild_project_arns, additional_log_group_arns
 
-```hcl
-module "my_pipeline" {
-  source = "git::https://github.com/org/terraform-pipelines.git//modules/default"
+3. Depends on IAM roles + log groups:
+   └── CodeBuild Projects (x7)
+       ├── References: codebuild service role ARN
+       └── References: log group names
 
-  project_name             = "my-project"
-  github_repo              = "my-org/my-project"
-  dev_account_id           = "222222222222"
-  dev_deployment_role_arn  = "arn:aws:iam::222222222222:role/TerraformDeploy"
-  prod_account_id          = "222222222222"  # Same account — isolation via state keys
-  prod_deployment_role_arn = "arn:aws:iam::222222222222:role/TerraformDeploy"
-}
+4. Depends on core outputs (variant-owned):
+   ├── Destroy CodeBuild Project (DevDestroy only)
+   └── Destroy CloudWatch Log Group (DevDestroy only)
+
+5. Depends on everything above:
+   └── CodePipeline V2
+       ├── References: codebuild project names
+       ├── References: codepipeline service role ARN
+       ├── References: artifact bucket name
+       ├── References: codestar connection ARN
+       └── References: sns topic ARN
 ```
-
-### Consumer Usage (Default-DevDestroy Variant)
-
-```hcl
-module "my_pipeline" {
-  source = "git::https://github.com/org/terraform-pipelines.git//modules/default-dev-destroy"
-
-  project_name              = "my-project"
-  github_repo               = "my-org/my-project"
-  dev_account_id            = "222222222222"
-  dev_deployment_role_arn   = "arn:aws:iam::222222222222:role/TerraformDeploy-dev"
-  prod_account_id           = "333333333333"
-  prod_deployment_role_arn  = "arn:aws:iam::333333333333:role/TerraformDeploy-prod"
-  enable_destroy_approval   = true  # Optional: require approval before DEV destroy
-}
-```
-
-## Cost Estimate
-
-Per-pipeline costs remain identical to the original module (~$2.65/month at moderate use). The Default-DevDestroy variant adds approximately $0.15/month for the additional destroy CodeBuild execution (20 runs x ~3 min x $0.005/min).
-
-See `docs/shared/` for the full cost breakdown table.
 
 ## Test Environment
 
-| Account | Account ID | CLI Profile | Role |
-|---------|-----------|-------------|------|
-| Automation | 389068787156 | `aft-automation` | Pipeline host |
+| Account | Account ID | CLI Profile | Purpose |
+|---------|-----------|-------------|---------|
+| Automation | 389068787156 | `aft-automation` | Pipeline host — all pipeline resources deployed here |
 | DEV Target | 914089393341 | `developer-account` | DEV deployment target |
 | PROD Target | 264675080489 | `network` | PROD deployment target |
 
-**Test Repository:** `OttawaCloudConsulting/terraform-test`, branch `s3-bucket`
-
-### Cross-Account Role Chain
-
-```
-aft-automation account (389068787156)
-├── org-automation-broker-role
-│   └── Assumes (role-chain) →
-│       ├── org-default-deployment-role (in target accounts)
-│       └── application-default-deployment-role (in target accounts)
-│
-└── CodeBuild-<project>-ServiceRole (created by terraform-pipelines module)
-    └── Assumes (direct, first-hop) →
-        └── org-default-deployment-role (in target accounts)
-```
+**Test repo:** `OttawaCloudConsulting/terraform-test`, branch `s3-bucket`
 
 **Deployment role in target accounts:** `org-default-deployment-role`
 - DEV: `arn:aws:iam::914089393341:role/org/org-default-deployment-role`
 - PROD: `arn:aws:iam::264675080489:role/org/org-default-deployment-role`
 
-## Dependency Graph
-
-### Module Dependency Graph
-
-```
-Consumer Root Module
-    │
-    ▼
-Variant Wrapper (default | default-dev-destroy)
-    │
-    ├──► module "core" (modules/core/)
-    │       │
-    │       ├── IAM Roles + Policies
-    │       ├── S3 Buckets (state conditional + artifacts)
-    │       ├── SNS Topic + Subscriptions
-    │       ├── CodeStar Connection (conditional)
-    │       ├── CloudWatch Log Groups (x4)
-    │       └── CodeBuild Projects (x4)
-    │
-    ├──► CodePipeline V2 (variant-specific stages)
-    │       depends on: core.codebuild_project_names,
-    │                   core.codepipeline_service_role_arn,
-    │                   core.artifact_bucket_name,
-    │                   core.codestar_connection_arn,
-    │                   core.sns_topic_arn
-    │
-    └──► [Default-DevDestroy only]
-            ├── Destroy CodeBuild Project
-            │     depends on: core.codebuild_service_role_arn
-            └── Destroy CloudWatch Log Group
-```
-
-### Creation Order (Terraform resolves automatically)
-
-1. Core resources (S3, SNS, CodeStar, log groups) — independent, parallel
-2. Core IAM roles + policies — depend on bucket ARNs, log group ARNs
-3. Core CodeBuild projects — depend on IAM role, log groups
-4. Variant-specific resources (destroy CB project, if applicable) — depend on core outputs
-5. CodePipeline — depends on everything above
-
 ## Out of Scope
 
 | Item | Rationale |
 |------|-----------|
-| Deployment roles in target accounts | Prerequisite. Trust and permission policies documented in MVP statement. |
-| Custom Docker images | Adds build/maintain/patch lifecycle. Standard images + inline install. |
-| Automated approval | Lambda + PutApprovalResult is post-MVP. |
-| Multi-environment beyond DEV/PROD | Each pipeline deploys to exactly two environments. |
+| Deployment roles in target accounts | Prerequisite. Not managed by pipeline. |
+| Custom Docker images | Standard images + inline install. |
+| More than two environments | Each pipeline deploys to DEV and PROD only. |
 | Core module as public API | Consumers must use variant wrappers. |
-| Dynamic stage composition | Variants have fixed stages. No runtime stage selection. |
-| Cross-variant migration tooling | Consumers re-deploy with the new variant source. |
-| Customer-managed KMS keys | Post-MVP. SSE-S3 sufficient for single-account artifact access. |
-
-## References
-
-- [AWS CodePipeline Security Best Practices](https://docs.aws.amazon.com/codepipeline/latest/userguide/security-best-practices.html)
-- [AWS Security Hub CodeBuild Controls](https://docs.aws.amazon.com/securityhub/latest/userguide/codebuild-controls.html)
-- [AWS Well-Architected SEC11-BP07: Pipeline Security](https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_appsec_regularly_assess_security_properties_of_pipelines.html)
-- [AWS Prescriptive Guidance: Terraform AWS Provider Best Practices](https://docs.aws.amazon.com/prescriptive-guidance/latest/terraform-aws-provider-best-practices/introduction.html)
-- [AWS Prescriptive Guidance: S3 Encryption Best Practices](https://docs.aws.amazon.com/prescriptive-guidance/latest/encryption-best-practices/s3.html)
-- [AWS IAM Best Practices](https://aws.amazon.com/iam/resources/best-practices/)
+| Customer-managed KMS keys | SSE-S3 sufficient for artifact encryption. |
+| Empty plan short-circuiting | Always proceed through Approve and Deploy. |
+| Migration tooling / moved blocks | POC — no deployed pipelines to migrate. |

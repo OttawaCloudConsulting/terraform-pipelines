@@ -1,8 +1,7 @@
 # -----------------------------------------------------------------------------
-# Default-DevDestroy Variant — 10-11 Stage Pipeline
-# Stages 1-9: identical to Default variant
-# Stage 10 (optional): Destroy Approval gate (when enable_destroy_approval = true)
-# Stage 10/11: Destroy DEV — runs terraform destroy against DEV environment
+# Default-DevDestroy Variant — 7-8 Stage Pipeline
+# Source > Pre-Build > DEV (Plan+Approve+Deploy) > Test DEV >
+# PROD (Plan+Approve+Deploy) > Test PROD > [Destroy Approval] > Destroy DEV
 # -----------------------------------------------------------------------------
 
 module "core" {
@@ -26,6 +25,7 @@ module "core" {
   enable_review_gate        = var.enable_review_gate
   codebuild_compute_type    = var.codebuild_compute_type
   codebuild_image           = var.codebuild_image
+  enable_security_scan      = var.enable_security_scan
   checkov_soft_fail         = var.checkov_soft_fail
   codebuild_timeout_minutes = var.codebuild_timeout_minutes
   logging_bucket            = var.logging_bucket
@@ -100,6 +100,17 @@ resource "aws_codebuild_project" "destroy" {
       name  = "IAC_WORKING_DIR"
       value = var.iac_working_directory
     }
+
+    environment_variable {
+      name  = "TARGET_ENV"
+      value = "dev"
+    }
+
+    environment_variable {
+      name  = "TARGET_ROLE"
+      value = var.dev_deployment_role_arn
+    }
+
   }
 
   source {
@@ -117,7 +128,7 @@ resource "aws_codebuild_project" "destroy" {
 }
 
 # -----------------------------------------------------------------------------
-# CodePipeline V2 — 10-11 Stage Pipeline
+# CodePipeline V2 — 7-8 Stage Pipeline
 # -----------------------------------------------------------------------------
 
 resource "aws_codepipeline" "this" {
@@ -171,69 +182,58 @@ resource "aws_codepipeline" "this" {
     }
   }
 
-  # Stage 3: Plan + Security Scan
+  # Stage 3: DEV — Plan > [Approve] > Deploy
   stage {
-    name = "Plan"
+    name = "DEV"
 
     action {
-      name             = "TerraformPlan"
+      name             = "Plan-DEV"
       category         = "Build"
       owner            = "AWS"
       provider         = "CodeBuild"
       version          = "1"
+      run_order        = 1
       input_artifacts  = ["source_output"]
-      output_artifacts = ["plan_output"]
+      output_artifacts = ["dev_plan_output"]
 
       configuration = {
-        ProjectName = module.core.codebuild_project_names["plan"]
+        ProjectName = module.core.codebuild_project_names["plan-dev"]
       }
     }
-  }
 
-  # Stage 4: Optional Review Gate
-  dynamic "stage" {
-    for_each = var.enable_review_gate ? [1] : []
+    dynamic "action" {
+      for_each = var.enable_review_gate ? [1] : []
 
-    content {
-      name = "Review"
-
-      action {
-        name     = "ManualReview"
-        category = "Approval"
-        owner    = "AWS"
-        provider = "Manual"
-        version  = "1"
+      content {
+        name      = "Approve-DEV"
+        category  = "Approval"
+        owner     = "AWS"
+        provider  = "Manual"
+        version   = "1"
+        run_order = 2
 
         configuration = {
-          CustomData = "Review the Terraform plan before proceeding to DEV deployment."
+          CustomData = "Review the Terraform plan before deploying to DEV."
         }
       }
     }
-  }
-
-  # Stage 5: Deploy DEV
-  stage {
-    name = "Deploy-DEV"
 
     action {
-      name            = "DeployDEV"
+      name            = "Deploy-DEV"
       category        = "Build"
       owner           = "AWS"
       provider        = "CodeBuild"
       version         = "1"
-      input_artifacts = ["source_output"]
+      run_order       = 3
+      input_artifacts = ["source_output", "dev_plan_output"]
 
       configuration = {
-        ProjectName = module.core.codebuild_project_names["deploy"]
+        ProjectName   = module.core.codebuild_project_names["deploy-dev"]
+        PrimarySource = "source_output"
         EnvironmentVariables = jsonencode([
           {
-            name  = "TARGET_ENV"
-            value = "dev"
-            type  = "PLAINTEXT"
-          },
-          {
-            name  = "TARGET_ROLE"
-            value = var.dev_deployment_role_arn
+            name  = "PLAN_ARTIFACT"
+            value = "dev_plan_output"
             type  = "PLAINTEXT"
           }
         ])
@@ -241,7 +241,7 @@ resource "aws_codepipeline" "this" {
     }
   }
 
-  # Stage 6: Test DEV
+  # Stage 4: Test DEV
   stage {
     name = "Test-DEV"
 
@@ -254,64 +254,60 @@ resource "aws_codepipeline" "this" {
       input_artifacts = ["source_output"]
 
       configuration = {
-        ProjectName = module.core.codebuild_project_names["test"]
-        EnvironmentVariables = jsonencode([
-          {
-            name  = "TARGET_ENV"
-            value = "dev"
-            type  = "PLAINTEXT"
-          },
-          {
-            name  = "TARGET_ROLE"
-            value = var.dev_deployment_role_arn
-            type  = "PLAINTEXT"
-          }
-        ])
+        ProjectName = module.core.codebuild_project_names["test-dev"]
       }
     }
   }
 
-  # Stage 7: Mandatory Approval
+  # Stage 5: PROD — Plan > Approve > Deploy
   stage {
-    name = "Approval"
+    name = "PROD"
 
     action {
-      name     = "ProductionApproval"
-      category = "Approval"
-      owner    = "AWS"
-      provider = "Manual"
-      version  = "1"
+      name             = "Plan-PROD"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      version          = "1"
+      run_order        = 1
+      input_artifacts  = ["source_output"]
+      output_artifacts = ["prod_plan_output"]
+
+      configuration = {
+        ProjectName = module.core.codebuild_project_names["plan-prod"]
+      }
+    }
+
+    action {
+      name      = "Approve-PROD"
+      category  = "Approval"
+      owner     = "AWS"
+      provider  = "Manual"
+      version   = "1"
+      run_order = 2
 
       configuration = {
         NotificationArn = module.core.sns_topic_arn
         CustomData      = "Approve deployment of ${var.project_name} to PROD."
       }
     }
-  }
-
-  # Stage 8: Deploy PROD
-  stage {
-    name = "Deploy-PROD"
 
     action {
-      name            = "DeployPROD"
+      name            = "Deploy-PROD"
       category        = "Build"
       owner           = "AWS"
       provider        = "CodeBuild"
       version         = "1"
-      input_artifacts = ["source_output"]
+      run_order       = 3
+      input_artifacts = ["source_output", "prod_plan_output"]
 
       configuration = {
-        ProjectName = module.core.codebuild_project_names["deploy"]
+        ProjectName   = module.core.codebuild_project_names["deploy-prod"]
+        PrimarySource = "source_output"
         EnvironmentVariables = jsonencode([
           {
-            name  = "TARGET_ENV"
-            value = "prod"
-            type  = "PLAINTEXT"
-          },
-          {
-            name  = "TARGET_ROLE"
-            value = var.prod_deployment_role_arn
+            name  = "PLAN_ARTIFACT"
+            value = "prod_plan_output"
             type  = "PLAINTEXT"
           }
         ])
@@ -319,7 +315,7 @@ resource "aws_codepipeline" "this" {
     }
   }
 
-  # Stage 9: Test PROD
+  # Stage 6: Test PROD
   stage {
     name = "Test-PROD"
 
@@ -332,24 +328,12 @@ resource "aws_codepipeline" "this" {
       input_artifacts = ["source_output"]
 
       configuration = {
-        ProjectName = module.core.codebuild_project_names["test"]
-        EnvironmentVariables = jsonencode([
-          {
-            name  = "TARGET_ENV"
-            value = "prod"
-            type  = "PLAINTEXT"
-          },
-          {
-            name  = "TARGET_ROLE"
-            value = var.prod_deployment_role_arn
-            type  = "PLAINTEXT"
-          }
-        ])
+        ProjectName = module.core.codebuild_project_names["test-prod"]
       }
     }
   }
 
-  # Stage 10 (optional): Destroy Approval Gate
+  # Stage 7 (optional): Destroy Approval Gate
   dynamic "stage" {
     for_each = var.enable_destroy_approval ? [1] : []
 
@@ -371,7 +355,7 @@ resource "aws_codepipeline" "this" {
     }
   }
 
-  # Stage 10/11: Destroy DEV
+  # Stage 7/8: Destroy DEV
   stage {
     name = "Destroy-DEV"
 
@@ -385,18 +369,6 @@ resource "aws_codepipeline" "this" {
 
       configuration = {
         ProjectName = aws_codebuild_project.destroy.name
-        EnvironmentVariables = jsonencode([
-          {
-            name  = "TARGET_ENV"
-            value = "dev"
-            type  = "PLAINTEXT"
-          },
-          {
-            name  = "TARGET_ROLE"
-            value = var.dev_deployment_role_arn
-            type  = "PLAINTEXT"
-          }
-        ])
       }
     }
   }

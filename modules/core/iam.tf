@@ -50,12 +50,7 @@ resource "aws_iam_role_policy" "codepipeline" {
           "codebuild:StartBuild"
         ]
         Resource = concat(
-          [
-            aws_codebuild_project.prebuild.arn,
-            aws_codebuild_project.plan.arn,
-            aws_codebuild_project.deploy.arn,
-            aws_codebuild_project.test.arn
-          ],
+          [for p in aws_codebuild_project.this : p.arn],
           var.additional_codebuild_project_arns
         )
       },
@@ -122,7 +117,7 @@ resource "aws_iam_role_policy" "codebuild" {
         ]
       },
       {
-        Sid    = "CrossAccountAssumeRole"
+        Sid    = "AssumeRole"
         Effect = "Allow"
         Action = "sts:AssumeRole"
         Resource = [
@@ -166,12 +161,7 @@ resource "aws_iam_role_policy" "codebuild" {
           "logs:PutLogEvents"
         ]
         Resource = concat(
-          [
-            "${aws_cloudwatch_log_group.prebuild.arn}:*",
-            "${aws_cloudwatch_log_group.plan.arn}:*",
-            "${aws_cloudwatch_log_group.deploy.arn}:*",
-            "${aws_cloudwatch_log_group.test.arn}:*"
-          ],
+          [for lg in aws_cloudwatch_log_group.this : "${lg.arn}:*"],
           var.additional_log_group_arns
         )
       },

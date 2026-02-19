@@ -13,7 +13,7 @@ provider "aws" {
   region = "ca-central-1"
 }
 
-# Default-DevDestroy variant: 9 standard stages + optional destroy approval + destroy DEV.
+# Default-DevDestroy variant: 6 standard stages + optional destroy approval + destroy DEV.
 # enable_destroy_approval defaults to true (safe by default).
 module "pipeline" {
   source = "../../../modules/default-dev-destroy"
