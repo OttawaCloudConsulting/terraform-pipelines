@@ -28,48 +28,48 @@ locals {
       description = "Plan DEV environment for ${var.project_name} pipeline"
       buildspec   = file("${path.module}/buildspecs/plan.yml")
       env_vars = merge(local.common_env_vars, {
-        IAC_WORKING_DIR            = var.iac_working_directory
-        STATE_BUCKET               = local.state_bucket_name
-        STATE_KEY_PREFIX           = local.state_key_prefix
-        TARGET_ENV                 = "dev"
-        TARGET_ROLE                = var.dev_deployment_role_arn
-        ENABLE_SECURITY_SCAN       = tostring(var.enable_security_scan)
-        CHECKOV_SOFT_FAIL          = tostring(var.checkov_soft_fail)
+        IAC_WORKING_DIR      = var.iac_working_directory
+        STATE_BUCKET         = local.state_bucket_name
+        STATE_KEY_PREFIX     = local.state_key_prefix
+        TARGET_ENV           = "dev"
+        TARGET_ROLE          = var.dev_deployment_role_arn
+        ENABLE_SECURITY_SCAN = tostring(var.enable_security_scan)
+        CHECKOV_SOFT_FAIL    = tostring(var.checkov_soft_fail)
       })
     }
     plan-prod = {
       description = "Plan PROD environment for ${var.project_name} pipeline"
       buildspec   = file("${path.module}/buildspecs/plan.yml")
       env_vars = merge(local.common_env_vars, {
-        IAC_WORKING_DIR            = var.iac_working_directory
-        STATE_BUCKET               = local.state_bucket_name
-        STATE_KEY_PREFIX           = local.state_key_prefix
-        TARGET_ENV                 = "prod"
-        TARGET_ROLE                = var.prod_deployment_role_arn
-        ENABLE_SECURITY_SCAN       = tostring(var.enable_security_scan)
-        CHECKOV_SOFT_FAIL          = "false"
+        IAC_WORKING_DIR      = var.iac_working_directory
+        STATE_BUCKET         = local.state_bucket_name
+        STATE_KEY_PREFIX     = local.state_key_prefix
+        TARGET_ENV           = "prod"
+        TARGET_ROLE          = var.prod_deployment_role_arn
+        ENABLE_SECURITY_SCAN = tostring(var.enable_security_scan)
+        CHECKOV_SOFT_FAIL    = "false"
       })
     }
     deploy-dev = {
       description = "Deploy to DEV environment for ${var.project_name} pipeline"
       buildspec   = file("${path.module}/buildspecs/deploy.yml")
       env_vars = merge(local.common_env_vars, {
-        IAC_WORKING_DIR            = var.iac_working_directory
-        STATE_BUCKET               = local.state_bucket_name
-        STATE_KEY_PREFIX           = local.state_key_prefix
-        TARGET_ENV                 = "dev"
-        TARGET_ROLE                = var.dev_deployment_role_arn
+        IAC_WORKING_DIR  = var.iac_working_directory
+        STATE_BUCKET     = local.state_bucket_name
+        STATE_KEY_PREFIX = local.state_key_prefix
+        TARGET_ENV       = "dev"
+        TARGET_ROLE      = var.dev_deployment_role_arn
       })
     }
     deploy-prod = {
       description = "Deploy to PROD environment for ${var.project_name} pipeline"
       buildspec   = file("${path.module}/buildspecs/deploy.yml")
       env_vars = merge(local.common_env_vars, {
-        IAC_WORKING_DIR            = var.iac_working_directory
-        STATE_BUCKET               = local.state_bucket_name
-        STATE_KEY_PREFIX           = local.state_key_prefix
-        TARGET_ENV                 = "prod"
-        TARGET_ROLE                = var.prod_deployment_role_arn
+        IAC_WORKING_DIR  = var.iac_working_directory
+        STATE_BUCKET     = local.state_bucket_name
+        STATE_KEY_PREFIX = local.state_key_prefix
+        TARGET_ENV       = "prod"
+        TARGET_ROLE      = var.prod_deployment_role_arn
       })
     }
     test-dev = {
