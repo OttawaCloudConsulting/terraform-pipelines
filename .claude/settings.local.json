@@ -39,8 +39,10 @@
       "Bash(do echo \"=== $dir ===\")",
       "Bash(done)",
       "Bash(for dir in examples/default/minimal examples/default/complete examples/default/opentofu examples/default/single-account examples/default-dev-destroy/minimal)",
-      "Bash(for dir in tests/default tests/default-dev-destroy)"
+      "Bash(for dir in tests/default tests/default-dev-destroy)",
+      "mcp__awslabs-terraform-mcp-server__SearchAwsProviderDocs"
     ]
   },
-  "enabledMcpjsonServers": []
+  "enabledMcpjsonServers": [],
+  "outputStyle": "default"
 }
