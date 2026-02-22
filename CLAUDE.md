@@ -114,6 +114,29 @@ module "pipeline" {
   # ... same variables as above ...
   enable_destroy_approval = true  # default
 }
+
+# With configs repo — tfvars files live in a separate repository
+module "pipeline" {
+  source = "git::https://github.com/org/terraform-pipelines.git//modules/default"
+  project_name             = "my-project"
+  github_repo              = "my-org/my-project"
+  dev_account_id           = "222222222222"
+  dev_deployment_role_arn  = "arn:aws:iam::222222222222:role/deployment-role"
+  prod_account_id          = "333333333333"
+  prod_deployment_role_arn = "arn:aws:iam::333333333333:role/deployment-role"
+  configs_repo             = "my-org/my-project-configs"  # enables configs repo feature
+  configs_repo_branch      = "main"
+  configs_repo_path        = "."  # environments/ at root of configs repo
+}
+
+# With configs repo in a subdirectory and separate CodeStar Connection (cross-org configs repo)
+module "pipeline" {
+  source = "git::https://github.com/org/terraform-pipelines.git//modules/default"
+  # ... same required variables ...
+  configs_repo                        = "other-org/shared-configs"
+  configs_repo_path                   = "my-project"  # environments/ at configs_repo/my-project/
+  configs_repo_codestar_connection_arn = "arn:aws:codestar-connections:ca-central-1:111111111111:connection/xxxxxxxx"
+}
 ```
 
 ## Build & Validate
@@ -168,6 +191,8 @@ Required: `project_name`, `github_repo`, `dev_account_id`, `dev_deployment_role_
 Optional with defaults: `github_branch` (main), `iac_runtime` (terraform), `iac_version` (latest), `iac_working_directory` ("."), `codestar_connection_arn` (""), `create_state_bucket` (true), `state_bucket` (""), `state_key_prefix` (<project_name>), `sns_subscribers` ([]), `enable_review_gate` (false — controls optional DEV approval), `enable_security_scan` (true — Checkov in Plan actions), `checkov_soft_fail` (false — DEV only; PROD always hard-fails), `codebuild_compute_type` (BUILD_GENERAL1_SMALL), `codebuild_image` (aws/codebuild/amazonlinux-x86_64-standard:5.0), `codebuild_timeout_minutes` (60), `logging_bucket` (""), `logging_prefix` (""), `log_retention_days` (30), `artifact_retention_days` (30), `tags` ({})
 
 Variant-specific: `enable_destroy_approval` (true) — Default-DevDestroy only
+
+Configs repo (all optional): `configs_repo` ("" — enables feature when non-empty, format `org/repo`), `configs_repo_branch` (main), `configs_repo_path` ("." — relative path within configs repo to the `environments/` directory), `configs_repo_codestar_connection_arn` ("" — defaults to IaC repo's CodeStar Connection)
 
 ## Test Environment
 

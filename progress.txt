@@ -1,59 +1,66 @@
-# Progress: De-identify Repository for Public Release
-# Source: Plan file (snug-painting-snowglobe.md)
-# Spec: Plan file is the authoritative reference
+# Progress: Discrete Configs Repository Support (Issue #8)
+# Source: prd.md + docs/issue-8/MVP-DESIGN.md
+# Spec: docs/issue-8/MVP-DESIGN.md is the authoritative technical design reference
+# Order: Sequential (1 through 8). Each feature builds on the previous.
 
 ## Features
 
-[ ] Feature 1: Delete development artifacts
-    - Delete agents/ directory (investigation records)
-    - Delete prd.md (internal PRD)
-    - Delete docs/REFINEMENT_1.md, docs/REFINEMENT_2.md, docs/MULTI_VARIANT_RESTRUCTURE.md
-    - Delete examples/default-dev-destroy/chatbot-teams/ directory (real deployment with hardcoded secrets)
-    NOTES:
+[x] Feature 1: Core Module — Variables, Locals, and Outputs
+    - Add 4 new optional variables to modules/core/variables.tf with validation blocks
+    - Add configs_repo_branch non-empty validation
+    - Add configs_repo_path path traversal validation
+    - Add computed locals to modules/core/locals.tf (configs_enabled, configs_repo_connection_arn, all_codestar_connection_arns)
+    - Add 2 new outputs to modules/core/outputs.tf (configs_enabled, configs_repo_connection_arn)
+    NOTES: Started 2026-02-22. Completed 2026-02-22. Validation: 10 passed, 1 warn (expected unused decls), 0 failed.
 
-[ ] Feature 2: De-identify test configurations
-    - tests/default/main.tf: extract hardcoded values into variables
-    - tests/default-dev-destroy/main.tf: extract hardcoded values into variables
-    - Create tests/default/variables.tf and tests/default-dev-destroy/variables.tf
-    - Create tests/default/terraform.tfvars.example and tests/default-dev-destroy/terraform.tfvars.example with placeholder values
-    - .gitignore already excludes *.tfvars — no change needed
-    NOTES:
+[x] Feature 2: Core Module — IAM Policy Updates
+    - Update CodeStarConnectionAccess statement in CodePipeline service role policy to use local.all_codestar_connection_arns
+    - Update CodeStarConnectionAccess statement in CodeBuild service role policy to use local.all_codestar_connection_arns
+    - Verify distinct() deduplication produces single ARN when same connection used
+    NOTES: Started 2026-02-22. Completed 2026-02-22. Validation: 10 passed, 1 warn (expected unused decls), 0 failed.
 
-[ ] Feature 3: De-identify test-terraform.sh
-    - Change AWS_PROFILE default from "aft-automation" to required (no default)
-    - Use ${AWS_PROFILE:?AWS_PROFILE must be set} pattern
-    NOTES:
+[x] Feature 3: Core Module — CodeBuild Environment Variables
+    - Add CONFIGS_ENABLED and CONFIGS_PATH env vars to plan-dev CodeBuild project entry in locals.tf
+    - Add CONFIGS_ENABLED and CONFIGS_PATH env vars to plan-prod CodeBuild project entry in locals.tf
+    - No changes to prebuild, deploy-dev, deploy-prod, test-dev, test-prod entries
+    NOTES: Started 2026-02-22. Completed 2026-02-22. Validation: 10 passed, 1 warn (expected unused decls), 0 failed.
 
-[ ] Feature 4: De-identify CLAUDE.md
-    - Replace Test Environment section: remove real account IDs, CLI profiles, org-specific role names
-    - Replace Cross-Account Role Chain diagram with generic version
-    - Remove OttawaCloudConsulting/terraform-test reference
-    - Replace all account IDs (389068787156, 914089393341, 264675080489) with placeholders
-    - Replace org-default-deployment-role with deployment-role throughout
-    - Remove /org/ IAM path references
-    NOTES:
+[x] Feature 4: Buildspec plan.yml — Conditional tfvars Sourcing
+    - Replace tfvars resolution block with conditional CONFIGS_ENABLED logic
+    - When true: resolve from ${CODEBUILD_SRC_DIR_configs_output}/${CONFIGS_PATH}/environments/${TARGET_ENV}.tfvars
+    - When false/unset: resolve from environments/${TARGET_ENV}.tfvars (current behavior)
+    - Add artifact directory validation (hard fail if configs dir missing when enabled)
+    - Add path traversal prevention (resolved path must stay within configs artifact)
+    - Add path normalization ("." avoids /./")
+    - Add safe default (CONFIGS_ENABLED defaults to false when unset)
+    NOTES: Started 2026-02-22. Completed 2026-02-22. Validation: 10 passed, 1 warn (expected unused decls), 0 failed.
 
-[ ] Feature 5: De-identify docs/ARCHITECTURE_AND_DESIGN.md
-    - Replace Test Environment section: remove real account IDs, CLI profiles, org-specific role names
-    - Change POC references in Out of Scope and Design Decisions tables to generic rationale
-    - Replace all account IDs with placeholders
-    - Replace org-default-deployment-role with deployment-role
-    NOTES:
+[x] Feature 5: Default Variant — Pipeline Integration
+    - Add 4 new variables to modules/default/variables.tf (identical to core)
+    - Pass through variables to module "core" block in modules/default/main.tf
+    - Add conditional second source action (dynamic "action" block) with CODE_ZIP and DetectChanges=true
+    - Modify Plan-DEV and Plan-PROD actions: conditional input_artifacts and PrimarySource
+    - No changes to Deploy, Test, or Pre-Build actions
+    NOTES: Started 2026-02-22. Completed 2026-02-22. Validation: 10 passed, 1 warn (expected unused decls), 0 failed.
 
-[ ] Feature 6: Clean up README.md
-    - Fix stage counts (currently says 9/10-11, should be 6/7-8 per architecture)
-    - Remove "Migration from Monolithic Module" section (no moved blocks exist in code)
-    - Verify no sensitive values remain
-    NOTES:
+[x] Feature 6: Default-DevDestroy Variant — Pipeline Integration
+    - Apply all default variant changes (variables, source action, plan wiring)
+    - Add CONFIGS_ENABLED and CONFIGS_PATH env vars to destroy CodeBuild project
+    - Modify Destroy-DEV action: conditional input_artifacts and PrimarySource
+    - Add conditional tfvars sourcing logic to buildspecs/destroy.yml (same pattern as plan.yml with hardening)
+    NOTES: Started 2026-02-22. Completed 2026-02-22. Validation: 7 passed, 1 warn (expected unused decls), 0 failed.
 
-[ ] Feature 7: Update .claude/commands/ references
-    - Review start-feature.md, test-terraform.md, create-prd.md for references to deleted files
-    - Update or simplify commands that reference progress.txt and prd.md
-    NOTES:
+[x] Feature 7: Test Configurations
+    - Verify existing test configurations still pass unchanged (backward compatibility)
+    - Create tests/default-configs/ test directory with configs repo variables
+    - Create tests/default-dev-destroy-configs/ test directory with configs repo variables
+    - Add terraform.tfvars.example files with sample configs repo values
+    - Run bash tests/test-terraform.sh — all gates must pass (fmt, validate, tflint, checkov, trivy)
+    NOTES: Started 2026-02-22. Completed 2026-02-22. Validation: 22 passed, 1 warn (expected unused decls), 0 failed. All 4 test dirs + all examples pass. Security scans clean.
 
-[ ] Feature 8: Final verification scan
-    - Run grep for all known sensitive values across entire repo
-    - Run terraform fmt -check -recursive
-    - Run terraform init -backend=false && terraform validate on all modules, examples, tests
-    - Confirm zero matches for account IDs, org names, profile names
-    NOTES:
+[x] Feature 8: Documentation Updates
+    - Update CLAUDE.md Pipeline Parameters section with configs repo variables
+    - Update CLAUDE.md Consumer Usage section with configs repo examples
+    - Add self-contained "Configs Repo Feature" section to end of docs/ARCHITECTURE_AND_DESIGN.md
+    - Architecture section covers: parameters, source stage, artifact flow, buildspec changes, known limitations
+    NOTES: Started 2026-02-22. Completed 2026-02-22. CLAUDE.md: added configs repo params line + 2 consumer examples. ARCHITECTURE_AND_DESIGN.md: appended self-contained "Configs Repo Feature" section (parameters, source stage, artifact flow, buildspec changes, IAM policy, known limitations).

@@ -57,11 +57,42 @@ phases:
 
         echo "Running terraform destroy for DEV environment..."
         DESTROY_ARGS="-auto-approve -input=false"
-        if [ -f "environments/dev.tfvars" ]; then
-          DESTROY_ARGS="${DESTROY_ARGS} -var-file=environments/dev.tfvars"
-          echo "Using var file: environments/dev.tfvars"
+
+        # Safe default when triggered manually (not via pipeline)
+        CONFIGS_ENABLED="${CONFIGS_ENABLED:-false}"
+
+        if [ "${CONFIGS_ENABLED}" = "true" ]; then
+          # Hard fail if configs artifact directory is missing or empty
+          if [ -z "${CODEBUILD_SRC_DIR_configs_output:-}" ] || [ ! -d "${CODEBUILD_SRC_DIR_configs_output}" ]; then
+            echo "ERROR: CONFIGS_ENABLED=true but configs artifact directory is missing." >&2
+            exit 1
+          fi
+          # Path normalization: CONFIGS_PATH="." avoids /./  in resolved path
+          if [ "${CONFIGS_PATH}" = "." ]; then
+            CONFIGS_TFVARS="${CODEBUILD_SRC_DIR_configs_output}/environments/dev.tfvars"
+          else
+            CONFIGS_TFVARS="${CODEBUILD_SRC_DIR_configs_output}/${CONFIGS_PATH}/environments/dev.tfvars"
+          fi
+          # Path traversal prevention: resolved path must stay within configs artifact directory
+          CONFIGS_REAL=$(realpath -m "${CONFIGS_TFVARS}")
+          CONFIGS_DIR_REAL=$(realpath "${CODEBUILD_SRC_DIR_configs_output}")
+          case "${CONFIGS_REAL}" in
+            "${CONFIGS_DIR_REAL}/"*) ;;
+            *) echo "ERROR: Resolved path '${CONFIGS_REAL}' is outside configs artifact directory." >&2; exit 1 ;;
+          esac
+          if [ -f "${CONFIGS_TFVARS}" ]; then
+            echo "Using configs repo var file: ${CONFIGS_TFVARS}"
+            DESTROY_ARGS="${DESTROY_ARGS} -var-file=${CONFIGS_TFVARS}"
+          else
+            echo "No var file at ${CONFIGS_TFVARS}, proceeding without -var-file"
+          fi
         else
-          echo "No environments/dev.tfvars found, proceeding without var-file."
+          if [ -f "environments/dev.tfvars" ]; then
+            DESTROY_ARGS="${DESTROY_ARGS} -var-file=environments/dev.tfvars"
+            echo "Using var file: environments/dev.tfvars"
+          else
+            echo "No environments/dev.tfvars found, proceeding without var-file."
+          fi
         fi
         terraform destroy ${DESTROY_ARGS}
 

@@ -8,6 +8,8 @@
 **Companion Documents:**
 
 - [Problem Statement](./PROBLEM-STATEMENT.md)
+- [Technical Design](./MVP-DESIGN.md)
+- [Consolidated Red Team Review](./mvp-design-redteam/CONSOLIDATED-REVIEW.md)
 - [Original Pipeline MVP Statement](../shared/codepipeline-mvp-statement.md)
 - [Architecture and Design](../ARCHITECTURE_AND_DESIGN.md)
 
@@ -22,9 +24,10 @@
 5. [New Pipeline Parameters](#new-pipeline-parameters)
 6. [Architecture Impact](#architecture-impact)
 7. [Security Considerations](#security-considerations)
-8. [Success Criteria](#success-criteria)
-9. [Assumptions & Constraints](#assumptions--constraints)
-10. [Post-MVP Enhancements](#post-mvp-enhancements)
+8. [Known Limitations](#known-limitations)
+9. [Success Criteria](#success-criteria)
+10. [Assumptions & Constraints](#assumptions--constraints)
+11. [Post-MVP Enhancements](#post-mvp-enhancements)
 
 ---
 
@@ -96,6 +99,15 @@ The pipeline operates exactly as it does today:
 5. **Destroy actions** (default-dev-destroy variant) — the destroy buildspec sources var files from the configs repo artifact when the feature is enabled, ensuring destroy uses the same configuration as the original deployment.
 6. **Pre-Build and Test actions** — no change. These do not consume tfvars.
 
+### Buildspec Hardening
+
+When configs repo support is enabled, the buildspec enforces the following guards:
+
+- **Artifact directory validation** — when `CONFIGS_ENABLED` is `true`, the buildspec verifies the configs artifact directory exists and is non-empty before proceeding. Missing or empty directories cause a hard failure.
+- **Path traversal prevention** — the resolved tfvars path is validated to remain within the configs artifact directory at runtime. Paths that resolve outside the artifact boundary cause a hard failure.
+- **Path normalization** — the `"."` default for `configs_repo_path` is normalized to avoid `/./` in constructed paths.
+- **Safe defaults** — `CONFIGS_ENABLED` defaults to `false` when unset, allowing manual CodeBuild triggers without requiring the variable to be explicitly provided.
+
 ### Configs Repo Expected Structure
 
 Given a `configs_repo_path` of `"projects/my-project"`, the pipeline expects:
@@ -131,6 +143,17 @@ When `configs_repo_path` is empty or `"."`, the pipeline expects:
 
 All parameters are optional. When `configs_repo` is empty, the remaining configs repo parameters are ignored and the pipeline behaves identically to the current implementation.
 
+### Input Validation
+
+The following validations are enforced at plan time to prevent runtime failures:
+
+| Parameter | Validation |
+|-----------|------------|
+| `configs_repo` | Must be empty or match `org/repo` format |
+| `configs_repo_branch` | Must not be empty |
+| `configs_repo_path` | Must be `"."` or a relative path without path traversal (`..`), leading/trailing slashes, absolute paths, or special characters |
+| `configs_repo_codestar_connection_arn` | Required when `configs_repo` is in a different GitHub organization than `github_repo`. When both repos share the same org, the IaC repo's connection is reused |
+
 ---
 
 ## Architecture Impact
@@ -160,8 +183,8 @@ The configs repo connection defaults to the same CodeStar Connection used by the
 
 ### Core vs. Variant Impact
 
-- **Core module** — buildspec changes to conditionally source tfvars from the configs artifact. New environment variables on affected CodeBuild projects (`CONFIGS_ARTIFACT`, `CONFIGS_PATH`).
-- **Variant modules** — CodePipeline stage definitions gain the conditional second source action and pass the configs artifact to plan/destroy actions.
+- **Core module** — buildspec changes to conditionally source tfvars from the configs artifact. New environment variables on affected CodeBuild projects (`CONFIGS_ENABLED`, `CONFIGS_PATH`). Two new internal-wiring outputs (`configs_enabled`, `configs_repo_connection_arn`).
+- **Variant modules** — CodePipeline stage definitions gain the conditional second source action and pass the configs artifact to plan/destroy actions. No changes to variant-level outputs.
 
 ---
 
@@ -186,6 +209,26 @@ Tfvars files may contain sensitive values. The same guidance applies to the conf
 ### No New Trust Boundaries
 
 This feature does not introduce new AWS trust boundaries. The configs repo is fetched by CodePipeline in the Automation Account using an existing (or newly created) CodeStar Connection — the same mechanism already used for the IaC repo.
+
+---
+
+## Known Limitations
+
+### Toggling Configs Repo on Existing Pipelines Is Unsupported
+
+The decision to use a single repository or a configs + code repo pattern is a **primary prerequisite that must be made before first deployment**. Toggling `configs_repo` on or off on an existing pipeline may trigger resource force-replacement (pipeline destroy-and-recreate) rather than an in-place update, resulting in loss of pipeline execution history, termination of in-flight executions, and changed pipeline ARNs. Additionally, API-side configuration (such as `PrimarySource`) may retain stale values after toggle-off. Consumers who change this setting post-deployment do so at their own risk.
+
+### Shared Configs Repos Trigger All Referencing Pipelines
+
+When a configs repo serves multiple projects (using `configs_repo_path` to target a subdirectory), a push to the tracked branch triggers **all pipelines** referencing that configs repo, regardless of whether the change is within their `configs_repo_path`. CodePipeline V2 file-path trigger filtering is a post-MVP enhancement.
+
+### Config/Code Version Skew During Coordinated Changes
+
+The dual-trigger architecture means that when both repositories change in close succession, the pipeline may run with a mismatched combination — for example, new IaC code with old configs, or new configs with old IaC code. Best practice: when variable interfaces change, merge IaC changes first, then merge configs changes.
+
+### Pipeline Execution Mode
+
+The pipeline uses the default CodePipeline V2 `execution_mode` of `SUPERSEDED`. With dual triggers, a new execution supersedes an in-progress one. This means a configs repo push that triggers a new execution while a previous execution is mid-pipeline will supersede it. DEV and PROD may temporarily have different config versions until the superseding execution completes.
 
 ---
 

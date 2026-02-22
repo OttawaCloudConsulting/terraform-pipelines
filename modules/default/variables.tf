@@ -225,3 +225,61 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# -----------------------------------------------------------------------------
+# Configs Repo — Optional second source repository for tfvars
+# -----------------------------------------------------------------------------
+
+variable "configs_repo" {
+  description = "GitHub repository in org/repo format containing tfvars files. When empty, tfvars are sourced from the IaC repo."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.configs_repo == "" || can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.configs_repo))
+    error_message = "configs_repo must be empty or in org/repo format."
+  }
+}
+
+variable "configs_repo_branch" {
+  description = "Branch of the configs repo to track."
+  type        = string
+  default     = "main"
+
+  validation {
+    condition     = length(var.configs_repo_branch) > 0
+    error_message = "configs_repo_branch must not be empty."
+  }
+}
+
+variable "configs_repo_path" {
+  description = "Path within the configs repo where the environments/ directory is located. Use '.' for repo root."
+  type        = string
+  default     = "."
+
+  validation {
+    condition     = var.configs_repo_path == "." || can(regex("^[A-Za-z0-9_][A-Za-z0-9_./-]*[A-Za-z0-9_.]$", var.configs_repo_path))
+    error_message = "configs_repo_path must be '.' or a relative path starting with an alphanumeric character, without leading/trailing slashes."
+  }
+
+  validation {
+    condition     = !can(regex("\\.\\.", var.configs_repo_path))
+    error_message = "configs_repo_path must not contain path traversal (..)."
+  }
+
+  validation {
+    condition     = !can(regex("^/", var.configs_repo_path))
+    error_message = "configs_repo_path must not be an absolute path."
+  }
+}
+
+variable "configs_repo_codestar_connection_arn" {
+  description = "CodeStar Connection ARN for the configs repo. When empty, uses the same connection as the IaC repo."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.configs_repo_codestar_connection_arn == "" || can(regex("^arn:aws:(codestar-connections|codeconnections):[a-z0-9-]+:[0-9]{12}:connection/.+$", var.configs_repo_codestar_connection_arn))
+    error_message = "configs_repo_codestar_connection_arn must be empty or a valid CodeStar Connection ARN."
+  }
+}

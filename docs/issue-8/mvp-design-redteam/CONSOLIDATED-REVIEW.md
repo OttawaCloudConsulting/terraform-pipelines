@@ -22,12 +22,12 @@ After deduplication, **17 consolidated findings** remain from the original 34 ra
 
 | Severity | Count |
 |----------|-------|
-| CRITICAL | 3 |
+| CRITICAL | 3 (all out of scope) |
 | HIGH     | 5 |
 | MEDIUM   | 7 |
 | LOW      | 2 |
 
-**Overall Verdict: APPROVED WITH CONDITIONS** -- The design does not require a redesign. All findings are addressable through input validation, buildspec guards, explicit testing of toggle behavior, and documentation. The three CRITICAL and two blocking HIGH findings must be resolved before implementation begins.
+**Overall Verdict: APPROVED WITH CONDITIONS** -- The design does not require a redesign. All findings are addressable through input validation, buildspec guards, and documentation. All three CRITICAL findings are out of scope (repository governance and toggle behavior are consumer responsibilities). The two blocking HIGH findings (CF-04, CF-06) must be resolved before implementation begins.
 
 ---
 
@@ -495,9 +495,9 @@ The following findings must be resolved before implementation begins. They repre
 
 | ID | Title | Required Action |
 |----|-------|-----------------|
-| CF-01 | Configs repo trust boundary | Add prominent documentation and consumer guidance that configs repo requires equivalent governance controls. Add PROD approval `CustomData` note about config-driven changes. |
-| CF-02 | Pipeline force-replacement on toggle | **Test explicitly** on a real deployment: create pipeline without `configs_repo`, apply, add `configs_repo`, verify plan shows in-place update. Document result and mitigation path if force-replacement occurs. |
-| CF-03 | `PrimarySource` stale configuration | **Test toggle-off scenario end-to-end.** If API retains stale `PrimarySource`, change design to always set `PrimarySource = "source_output"` unconditionally. |
+| ~~CF-01~~ | ~~Configs repo trust boundary~~ | **OUT OF SCOPE** -- Management of repositories is outside the scope of the code module. See Accepted Risks. |
+| ~~CF-02~~ | ~~Pipeline force-replacement on toggle~~ | **OUT OF SCOPE** -- Toggle behavior is a consumer-side operational risk. Best practice is to decide single-repo vs. configs+code repos before first deployment. See Accepted Risks. |
+| ~~CF-03~~ | ~~`PrimarySource` stale configuration~~ | **OUT OF SCOPE** -- Toggle behavior is a consumer-side operational risk. Best practice is to decide single-repo vs. configs+code repos before first deployment. See Accepted Risks. |
 
 ### Blocking HIGH Findings
 
@@ -512,16 +512,7 @@ The following findings must be resolved before implementation begins. They repre
 
 The following concrete changes to MVP-DESIGN.md would address all pre-implementation blockers:
 
-### 1. Add a "Security and Governance" Section
-
-Insert a new section after "Consumer Usage Examples" containing:
-- Statement that the configs repo must have equivalent or stricter branch protection and access controls as the IaC repo.
-- Statement that CodeStar Connections grant access to all repos visible to the GitHub App installation, not just the specified repo.
-- Statement that artifact integrity between stages relies on IAM and S3 controls, not cryptographic verification.
-- Recommendation that configs repos never contain credentials or high-sensitivity values.
-- Recommendation to use `enable_review_gate` when configs repo is enabled, for additional checkpoint.
-
-### 2. Add a "Known Limitations" Section
+### 1. Add a "Known Limitations" Section
 
 Insert after the Security section:
 - Shared configs repos trigger all referencing pipelines on any push, regardless of `configs_repo_path`. File-path filtering is post-MVP.
@@ -529,7 +520,7 @@ Insert after the Security section:
 - The `execution_mode` defaults to `SUPERSEDED`; document implications and whether `QUEUED` is recommended for configs repo users.
 - Destroy stage uses configs artifact from the same pipeline execution, which may differ from current configs repo HEAD.
 
-### 3. Add Variable Validations to Design
+### 2. Add Variable Validations to Design
 
 Update the `configs_repo_path` variable declaration to include validation:
 
@@ -553,15 +544,7 @@ Update `configs_repo_branch` to include empty-string validation.
 
 Add cross-org connection validation (either as variable validation or `precondition`).
 
-### 4. Add Toggle Testing Requirement
-
-Add an explicit pre-ship testing requirement:
-- Test 1: Apply pipeline without `configs_repo`, then add `configs_repo` -- verify in-place update.
-- Test 2: Apply pipeline with `configs_repo`, then remove `configs_repo` -- verify in-place update and no stale `PrimarySource`.
-- Test 3: Trigger pipeline after toggle-off -- verify Plan actions succeed.
-- Document whether `PrimarySource` should be set unconditionally based on test results.
-
-### 5. Update Buildspec Design
+### 3. Update Buildspec Design
 
 Update the buildspec section to include:
 - `CONFIGS_DIR` existence guard (hard-fail when `CONFIGS_ENABLED=true` but directory is missing).
@@ -569,7 +552,7 @@ Update the buildspec section to include:
 - Runtime path traversal assertion.
 - `CONFIGS_ENABLED` default for manual triggers: `CONFIGS_ENABLED="${CONFIGS_ENABLED:-false}"`.
 
-### 6. Clarify Change Summary
+### 4. Clarify Change Summary
 
 Change: "No changes to outputs for either variant" to: "No changes to variant-level outputs. Core module gains two new internal-wiring outputs (`configs_enabled`, `configs_repo_connection_arn`)."
 
@@ -581,6 +564,9 @@ The following findings are acknowledged but acceptable for MVP scope. They repre
 
 | ID | Severity | Title | Justification |
 |----|----------|-------|---------------|
+| CF-01 | CRITICAL | Configs repo trust boundary | **Out of scope.** Management of repositories (branch protection, access controls, review policies) is outside the scope of the code module. The module creates pipeline infrastructure; repository governance is the consumer's responsibility. |
+| CF-02 | CRITICAL | Pipeline force-replacement on toggle | **Out of scope.** Toggling `configs_repo` on/off on an existing pipeline is a consumer-side operational risk. Best practice: the decision to use single-repo vs. configs+code repos is a primary prerequisite that should be made before first deployment. Consumers who toggle after deployment do so at their own risk. |
+| CF-03 | CRITICAL | `PrimarySource` stale config on toggle-off | **Out of scope.** Same rationale as CF-02. The single-repo vs. dual-repo decision is a prerequisite, not a runtime toggle. Consumers who change this post-deployment accept the risk of pipeline recreation or stale API-side configuration. |
 | CF-05 | HIGH | Dual-trigger race conditions | Inherent to dual-source pipeline architectures. Mitigated by consumer documentation and PROD approval gate. CodePipeline V2 supersession handles concurrent triggers. Post-MVP enhancements (trigger source in approval notification, change filtering) will further reduce risk. |
 | CF-07 | HIGH | CodeStar Connection IAM scope expansion | The IAM permission is `UseConnection` only, not `CreateConnection` or administrative access. Mitigated by documentation recommending narrowly-scoped GitHub App installations. The GitHub App installation scope on the GitHub side is the actual security boundary. |
 | CF-08 | HIGH | Artifact integrity not cryptographically verified | Pre-existing architectural risk that applies equally to the IaC repo artifact. Mitigated by S3 bucket policy, IAM controls, and CloudTrail logging. CMK encryption is already tracked as post-MVP. |

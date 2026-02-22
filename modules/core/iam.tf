@@ -60,9 +60,7 @@ resource "aws_iam_role_policy" "codepipeline" {
         Action = [
           "codestar-connections:UseConnection"
         ]
-        Resource = [
-          local.codestar_connection_arn
-        ]
+        Resource = local.all_codestar_connection_arns
       },
       {
         Sid    = "SNSPublish"
@@ -109,12 +107,10 @@ resource "aws_iam_role_policy" "codebuild" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "CodeStarConnectionAccess"
-        Effect = "Allow"
-        Action = "codestar-connections:UseConnection"
-        Resource = [
-          local.codestar_connection_arn
-        ]
+        Sid      = "CodeStarConnectionAccess"
+        Effect   = "Allow"
+        Action   = "codestar-connections:UseConnection"
+        Resource = local.all_codestar_connection_arns
       },
       {
         Sid    = "AssumeRole"
