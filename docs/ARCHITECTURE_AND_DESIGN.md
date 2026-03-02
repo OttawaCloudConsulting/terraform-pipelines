@@ -243,10 +243,24 @@ BUILD:
   - terraform plan -out=tfplan [-var-file=environments/${TARGET_ENV}.tfvars]
   - If ENABLE_SECURITY_SCAN=true:
     - terraform show -json tfplan > tfplan.json
-    - checkov scan on tfplan.json (soft-fail per CHECKOV_SOFT_FAIL)
+    - set +e; checkov scan on tfplan.json (--output cli --output json --output-file-path /tmp/checkov)
+      - CLI output → CloudWatch Logs (unchanged build log)
+      - JSON output → /tmp/checkov/results_json.json
+    - CHECKOV_EXIT=$?; set -e   (exit code captured before converter runs)
+    - rm -f tfplan.json
+    - Python converter (inline heredoc): results_json.json → /tmp/checkov/checkov-cobertura.xml
+      - One <class> per Terraform resource; one <line> per check (hits=1 passed, hits=0 failed)
+      - line-rate = passed / (passed + failed); defaults to 1.0 when zero checks
+      - Skipped checks excluded from coverage calculation
+    - exit ${CHECKOV_EXIT}  (re-raises after converter; preserves hard/soft-fail behaviour)
 
 ARTIFACTS:
   - tfplan (consumed by Deploy action)
+
+REPORTS (static buildspec directive — always present):
+  - checkov-security: /tmp/checkov/checkov-cobertura.xml (COBERTURAXML)
+    → CodeBuild uploads to report group {project_name}-plan-{env}-checkov-security (auto-created)
+    → When ENABLE_SECURITY_SCAN=false the file is absent; CodeBuild logs a warning, build continues
 ```
 
 ### deploy.yml Flow
@@ -261,6 +275,81 @@ BUILD:
   - terraform init with real env state
   - terraform apply tfplan (saved plan from Plan action artifact)
 ```
+
+## Checkov Coverage Reporting
+
+When `enable_security_scan = true`, each Plan build automatically generates a CodeBuild code
+coverage report from the Checkov results. The report is visible in the CodeBuild console under
+the **Reports** tab for `plan-dev` and `plan-prod` projects, with a line-coverage percentage
+and historical trend graph across pipeline runs.
+
+### Cobertura XML Mapping
+
+Checkov results are converted to Cobertura XML format by an inline Python script embedded in
+`plan.yml`. The mapping is:
+
+| Cobertura Element | Checkov Meaning |
+|---|---|
+| `<package name="terraform-plan">` | One package per scan (the entire plan) |
+| `<class name="aws_s3_bucket.main">` | One Terraform resource |
+| `<line hits="1">` | A check that passed on this resource |
+| `<line hits="0">` | A check that failed on this resource |
+| Line coverage % | `passed / (passed + failed)` across all resources |
+
+Skipped checks are excluded from both numerator and denominator. When zero checks apply,
+`line-rate` defaults to `1.0` rather than dividing by zero.
+
+### Report Group Naming
+
+CodeBuild auto-creates the report group on the first build upload using the convention
+`{codebuild-project-name}-{key-in-reports-section}`. With project names
+`{project_name}-plan-dev` and `{project_name}-plan-prod` and the buildspec key
+`checkov-security`, the auto-created groups are:
+
+- `{project_name}-plan-dev-checkov-security`
+- `{project_name}-plan-prod-checkov-security`
+
+Both names match the existing IAM wildcard `{project_name}-*` in the `CodeBuildReports`
+statement — no IAM changes were required to enable this feature.
+
+### Behaviour by Configuration
+
+| Condition | Outcome |
+|---|---|
+| `enable_security_scan=true`, checks pass | Report uploaded; build succeeds |
+| `enable_security_scan=true`, checks fail, `checkov_soft_fail=true` (DEV) | Report uploaded; build succeeds |
+| `enable_security_scan=true`, checks fail, PROD or `checkov_soft_fail=false` | Report uploaded; build fails (exit code re-raised after converter) |
+| `enable_security_scan=false` | No file created; CodeBuild logs a non-fatal warning; build succeeds |
+
+The coverage report is always uploaded before the Checkov exit code is re-raised, so even
+hard-failing PROD builds produce a report that operators can inspect in the console.
+
+### IAM Permissions
+
+The `CodeBuildReports` statement in `modules/core/iam.tf` was pre-existing and covers all
+five required actions scoped to `arn:aws:codebuild:{region}:{account}:report-group/{project_name}-*`:
+
+```
+codebuild:CreateReportGroup
+codebuild:CreateReport
+codebuild:UpdateReport
+codebuild:BatchPutTestCases
+codebuild:BatchPutCodeCoverages
+```
+
+`BatchPutTestCases` is included alongside `BatchPutCodeCoverages` following the AWS-recommended
+policy pattern. It enables a future JUnit test report without an IAM change (see Post-MVP
+Enhancements).
+
+### Encryption
+
+Auto-created report groups use SSE-S3 encryption by default (not CMK), consistent with the
+module-wide CMK deferral policy. Consumers enforcing the
+`CODEBUILD_REPORT_GROUP_ENCRYPTED_AT_REST` AWS Config rule will see these groups flagged as
+NON_COMPLIANT. The remediation is to add an explicit `aws_codebuild_report_group` Terraform
+resource with a KMS key ARN (see Post-MVP Enhancements). Note: `export_config.s3_destination.encryption_key`
+is a **required** argument in the AWS provider when `export_config.type = "S3"` — a KMS ARN
+must be supplied; there is no SSE-S3-only path through this argument.
 
 ## Core Module — for_each Design
 
@@ -343,8 +432,8 @@ resource "aws_codebuild_project" "this" {
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Stage: DEV                                                   │
-│                                                              │
+│ Stage: DEV                                                  │
+│                                                             │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐   │
 │  │ Plan DEV     │    │ Approve DEV  │    │ Deploy DEV   │   │
 │  │ run_order=1  │───►│ run_order=2  │───►│ run_order=3  │   │
@@ -360,7 +449,7 @@ The Plan action's `output_artifacts` produces `dev_plan_output` containing the `
 
 ### Plan Artifact Contents
 
-The plan artifact contains only the `tfplan` binary file. The `tfplan.json` and `checkov-report.xml` are consumed within the Plan action and not passed downstream.
+The plan artifact contains only the `tfplan` binary file. The `tfplan.json` and `checkov-cobertura.xml` are consumed within the Plan action and not passed downstream.
 
 ```yaml
 # plan.yml artifacts section
@@ -388,6 +477,7 @@ When `enable_security_scan=false`, neither environment runs the Checkov scan.
 - S3 state bucket: SSE-S3 encryption, versioning enabled, SSL-only policy
 - Plan artifacts (tfplan files): same SSE-S3 protection as all pipeline artifacts
 - SNS topic: KMS encryption
+- CodeBuild coverage report groups: SSE-S3 (auto-created default); CMK upgrade requires explicit `aws_codebuild_report_group` resource (post-MVP, see Checkov Coverage Reporting section)
 
 ### IAM Least Privilege
 
@@ -418,6 +508,7 @@ When `enable_security_scan=false`, neither environment runs the Checkov scan.
 | 17 | Instance profile credentials for S3 backend | CodeBuild service role instance profile credentials handle S3 state access directly. No `assume_role` in backend config, no self-assumption needed. Simpler trust policy (only `codebuild.amazonaws.com`). |
 | 18 | envsubst for override file generation | Override file written with `cat <<'EOF'` (no shell expansion) then `envsubst` expands `${TARGET_ROLE}` and `${TARGET_ENV}`. Cleanup via `rm -f` in `post_build`. |
 | 19–30 | Original design decisions preserved | See `docs/shared/` for decisions from the original architecture (encryption, conditional resources, validation, tags, etc.) |
+| 31 | Checkov results surfaced as CodeBuild code coverage report (Cobertura XML) | Structured per-resource, per-check visibility in the CodeBuild console with a line-rate percentage and historical trend graph. Single `plan.yml` change; no new Terraform resources or consumer variables. See the Checkov Coverage Reporting section for the full design. |
 
 ## Dependency Graph
 
@@ -486,6 +577,21 @@ Configure test values in `tests/<variant>/terraform.tfvars` (copy from `terrafor
 | Customer-managed KMS keys | SSE-S3 sufficient for artifact encryption. |
 | Empty plan short-circuiting | Always proceed through Approve and Deploy. |
 | Migration tooling / moved blocks | Not needed — clean implementation. |
+
+## Post-MVP Enhancements
+
+Known deferred improvements for future implementation:
+
+| Enhancement | Area | Description |
+|---|---|---|
+| `aws_codebuild_report_group` Terraform resource | Coverage reporting | Explicit lifecycle management, S3 export, custom retention beyond 30 days, CMK encryption. Required for environments enforcing `CODEBUILD_REPORT_GROUP_ENCRYPTED_AT_REST` AWS Config rule. Must use `type = "CODE_COVERAGE"`. Note: `export_config.s3_destination.encryption_key` (KMS ARN) is **required** in the AWS provider when `export_config.type = "S3"` — there is no SSE-S3-only path through this argument. |
+| S3 export retention alignment | Coverage reporting | Align report retention with the existing `artifact_retention_days` variable so reports survive beyond the 30-day CodeBuild default. |
+| `json.JSONDecodeError` handling in converter | Coverage reporting | Wrap `json.load()` in `try/except json.JSONDecodeError` with a descriptive error message. Build fails safely today but shows a raw Python traceback in CloudWatch. |
+| CloudWatch alarm on `FailedBuilds` | Operational Excellence | Add `aws_cloudwatch_metric_alarm` for `plan-dev` and `plan-prod` CodeBuild projects using the existing SNS approval topic. Module-wide gap, not specific to coverage reporting. |
+| Coverage threshold gate | Coverage reporting | New variable `checkov_coverage_threshold` (0–100). Fail the build if line coverage falls below the threshold — after the Cobertura XML is written so the report remains visible on failed builds. |
+| Skipped checks in Cobertura output | Coverage reporting | Include `skipped_checks` as a third line category rather than excluding them entirely from the coverage calculation. |
+| JUnit XML test report | Coverage reporting | Upload `results_junitxml.xml` alongside the Cobertura file for per-check test case detail in the CodeBuild console. `BatchPutTestCases` IAM action is already present. |
+| Checkov baseline file support | Coverage reporting | Allow a `.checkov.baseline` file to suppress known findings from the coverage calculation. |
 
 ## Configs Repo Feature
 

@@ -44,16 +44,16 @@ plan.yml — buildspec execution (ENABLE_SECURITY_SCAN=true path)
   │      CHECKOV_EXIT=$?              ◄── exit code captured                    │
   │      set -e                       ◄── restore abort-on-error                │
   │                                                                             │
-  │  [4] python3 (inline heredoc converter)                                     │
+  │  [4] rm -f tfplan.json            ◄── always runs (before converter)         │
+  │                                                                             │
+  │  [5] python3 (inline heredoc converter)                                     │
   │        reads  /tmp/checkov/results_json.json                                │
   │        writes /tmp/checkov/checkov-cobertura.xml                            │
   │        prints coverage summary to stdout (CloudWatch Logs)                  │
   │                                                                             │
-  │  [5] [ $CHECKOV_EXIT -eq 0 ] || exit $CHECKOV_EXIT                         │
+  │  [6] exit ${CHECKOV_EXIT}                                                   │
   │        ▲── hard-fail / soft-fail behaviour preserved; re-raised AFTER       │
   │            converter so report is always generated and uploaded              │
-  │                                                                             │
-  │  [6] rm -f tfplan.json            ◄── only reached on success/soft-fail     │
   └─────────────────────────────────────────────────────────────────────────────┘
                 │
                 ▼
@@ -118,21 +118,20 @@ plan.yml — buildspec execution (ENABLE_SECURITY_SCAN=true path)
    - Structured JSON is written to `/tmp/checkov/results_json.json`
 6. `CHECKOV_EXIT=$?` captures the Checkov exit code (0 = all passed, 1 = findings or error)
 7. `set -e` restores abort-on-error for the remainder of the buildspec
-8. The Python converter reads `/tmp/checkov/results_json.json` and groups checks by Terraform
+8. `rm -f tfplan.json` cleans up the JSON plan. This runs before the converter and before the
+   exit code is re-raised — it always executes regardless of Checkov pass/fail (ephemeral
+   build container; no artifact export).
+9. The Python converter reads `/tmp/checkov/results_json.json` and groups checks by Terraform
    resource:
    - Each resource → one `<class>` element in the Cobertura XML
    - Each check on a resource → one `<line>` with `hits="1"` (passed) or `hits="0"` (failed)
    - Skipped checks are excluded from both numerator and denominator
    - Overall `line-rate` = `passed / (passed + failed)`, defaulting to `1.0` when total is zero
-   - Converter prints a summary (`Coverage: X/Y checks passed (Z%)`) to stdout for CloudWatch
-9. Converter writes `/tmp/checkov/checkov-cobertura.xml`
-10. `[ "${CHECKOV_EXIT}" -eq 0 ] || exit "${CHECKOV_EXIT}"` re-raises the captured exit code.
-    This fires AFTER the converter so the report is always uploaded regardless of pass/fail.
-    The existing hard-fail (PROD) / soft-fail (DEV with `checkov_soft_fail=true`) behaviour
-    is unchanged.
-11. `rm -f tfplan.json` cleans up the JSON plan. Note: this line is only reached on success or
-    soft-fail; a hard-failing PROD build exits at step 10 and `tfplan.json` is not deleted
-    (ephemeral build container, no artifact export — no persistent exposure).
+   - Converter prints a summary line to stdout for CloudWatch
+10. Converter writes `/tmp/checkov/checkov-cobertura.xml`
+11. `exit ${CHECKOV_EXIT}` re-raises the captured exit code. This fires AFTER the converter
+    so the report is always uploaded regardless of pass/fail. The existing hard-fail (PROD) /
+    soft-fail (DEV with `checkov_soft_fail=true`) behaviour is unchanged.
 12. CodeBuild reads the `reports:` section after all phases complete and uploads
     `/tmp/checkov/checkov-cobertura.xml` to the report group using the service role credentials
 13. The report group (`{project_name}-plan-{env}-checkov-security`) is auto-created on first
@@ -258,8 +257,8 @@ This is a module change delivered via the standard development and testing flow:
 1. Modify modules/core/buildspecs/plan.yml
    ├── Add --output cli --output json --output-file-path /tmp/checkov to Checkov command
    ├── Wrap Checkov with set +e / CHECKOV_EXIT=$? / set -e
-   ├── Add inline Python converter heredoc
-   ├── Add [ $CHECKOV_EXIT -eq 0 ] || exit $CHECKOV_EXIT re-raise
+   ├── Add inline Python converter heredoc (runs before exit code re-raise)
+   ├── Add exit ${CHECKOV_EXIT} re-raise (after converter)
    └── Add top-level reports: section with COBERTURAXML entry
 
 2. bash tests/test-terraform.sh --skip-security   (fast: fmt + validate)
@@ -369,7 +368,7 @@ Assessment against the six AWS Well-Architected Framework pillars. Conducted aga
 
 | # | Finding | Risk | Status | Recommendation |
 |---|---|---|---|---|
-| REL-1 | `os.path.exists()` guard prevents `json.load()` crash on missing results file; `sys.exit(0)` allows `CHECKOV_EXIT` to re-raise cleanly | — | Already Addressed | No action needed |
+| REL-1 | `try/except FileNotFoundError` guard prevents `json.load()` crash on missing results file; `sys.exit(0)` allows `CHECKOV_EXIT` to re-raise cleanly | — | Already Addressed | No action needed |
 | REL-2 | `json.load()` has no `try/except` for malformed JSON (e.g., truncated file from OOM kill) | Low | **Implementation Note** | Build fails safely via `set -e` and the Python traceback is visible in CloudWatch — acceptable for MVP. Post-MVP: wrap in `try/except json.JSONDecodeError` with a descriptive `print()` for improved diagnosability |
 | REL-3 | CodeBuild report upload failure is non-fatal to the build (upload runs outside phase execution) | — | Already Addressed | Upload failures appear in CloudWatch logs; build status unaffected |
 | REL-4 | No S3 export means reports are lost after CodeBuild's 30-day retention window | Low | Post-MVP | Add S3 export config to `aws_codebuild_report_group`; align retention with existing `artifact_retention_days` variable pattern |
