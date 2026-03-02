@@ -86,6 +86,8 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 | `dev_account_id` | `string` | DEV account ID pass-through |
 | `prod_account_id` | `string` | PROD account ID pass-through |
 | `all_tags` | `map(string)` | Merged tags for variant-owned resources |
+| `configs_enabled` | `bool` | Whether the configs repo feature is active (true when `configs_repo` is non-empty) |
+| `configs_repo_connection_arn` | `string` | Resolved CodeStar Connection ARN for the configs repo (deduped; falls back to IaC repo connection) |
 
 ## Variant Architectures
 
@@ -178,9 +180,21 @@ terraform-pipelines/
 │   │   ├── minimal/
 │   │   ├── complete/
 │   │   ├── opentofu/
-│   │   └── single-account/
-│   └── default-dev-destroy/
-│       └── minimal/
+│   │   ├── single-account/
+│   │   └── configs-repo/              # Default variant with configs repo feature
+│   ├── default-dev-destroy/
+│   │   └── minimal/
+│   └── cicd/                          # Developer-managed script templates (copy to your repo)
+│       ├── prebuild/main.sh
+│       ├── dev/smoke-test.sh
+│       └── prod/smoke-test.sh
+│
+├── tests/
+│   ├── test-terraform.sh              # Validation + E2E deploy script (7 gates)
+│   ├── default/                       # Default variant E2E test config
+│   ├── default-dev-destroy/           # DevDestroy variant E2E test config
+│   ├── default-configs/               # Default variant + configs repo E2E test config
+│   └── default-dev-destroy-configs/   # DevDestroy + configs repo E2E test config
 │
 ├── docs/
 │   ├── ARCHITECTURE_AND_DESIGN.md     # This file
@@ -189,10 +203,12 @@ terraform-pipelines/
 │   │   ├── codepipeline-mvp-statement.md
 │   │   └── diagrams/
 │   ├── default/
-│   └── default-dev-destroy/
+│   ├── default-dev-destroy/
+│   └── configs-repo/                  # Configs repo feature usage guide
 │
 ├── CLAUDE.md
 ├── prd.md
+├── CHANGELOG.md
 └── progress.txt
 ```
 
@@ -448,7 +464,16 @@ To run E2E tests, you need three AWS accounts with cross-account deployment role
 | DEV Target | DEV deployment target |
 | PROD Target | PROD deployment target |
 
-Configure test values in `tests/<variant>/terraform.tfvars` (copy from `terraform.tfvars.example`).
+Four test configurations exist, one per variant + feature combination:
+
+| Test Directory | Variant + Feature | `--deploy` target |
+|----------------|-------------------|-------------------|
+| `tests/default/` | Default | `--deploy default` |
+| `tests/default-dev-destroy/` | Default-DevDestroy | `--deploy default-dev-destroy` |
+| `tests/default-configs/` | Default + configs repo | `--deploy default-configs` |
+| `tests/default-dev-destroy-configs/` | DevDestroy + configs repo | `--deploy default-dev-destroy-configs` |
+
+Configure test values in `tests/<variant>/terraform.tfvars` (copy from `terraform.tfvars.example`). Set `AWS_PROFILE` to the Automation Account CLI profile before running `--deploy`.
 
 ## Out of Scope
 

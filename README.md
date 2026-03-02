@@ -189,9 +189,14 @@ terraform-pipelines/
 │   │   ├── minimal/
 │   │   ├── complete/
 │   │   ├── opentofu/
-│   │   └── single-account/
-│   └── default-dev-destroy/
-│       └── minimal/
+│   │   ├── single-account/
+│   │   └── configs-repo/
+│   ├── default-dev-destroy/
+│   │   └── minimal/
+│   └── cicd/                                # Developer script templates (copy to your repo)
+│       ├── prebuild/main.sh
+│       ├── dev/smoke-test.sh
+│       └── prod/smoke-test.sh
 ├── tests/
 │   ├── test-terraform.sh                    # Validation + deploy test script
 │   ├── default/                             # Default variant E2E test
