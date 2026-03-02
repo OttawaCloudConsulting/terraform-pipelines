@@ -182,10 +182,14 @@ This repo uses a feature-driven workflow tracked in `progress.txt` and `prd.md`:
 - **`prd.md`** — authoritative feature specification. Each feature has requirements and acceptance criteria here.
 - **`progress.txt`** — status tracker. Features are marked `[ ]` (pending), `[~]` (in progress), or `[x]` (complete).
 
+These files are working documents — create them if they don't exist when starting a new project or feature cycle.
+
 1. **`/start-feature`** — reads `progress.txt` and `prd.md`, finds next pending feature, marks feature `[~]` (in progress), presents requirements summary. Does NOT begin implementation.
 2. **Implement** — follow architecture in `docs/ARCHITECTURE_AND_DESIGN.md`
-3. **`/test-terraform`** — runs all validation gates, updates `progress.txt` to `[x]`, creates feature docs, commits locally (never pushes)
+3. **Validate** — run `bash tests/test-terraform.sh`, update `progress.txt` to `[x]` on success, commit locally (never push)
 4. **`/update-docs-terraform`** — refreshes `README.md` and `docs/ARCHITECTURE_AND_DESIGN.md` to match current codebase. Use after completing multiple features or before creating a PR.
+
+When debugging failures or investigating unexpected behaviour, use **`/investigate`** to create a structured investigation with competing hypotheses.
 
 Features are always worked on one at a time. The script invocation is always `bash tests/test-terraform.sh` (not `./tests/test-terraform.sh`).
 
