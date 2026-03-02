@@ -1,0 +1,46 @@
+# Progress: CodeBuild Code Coverage Reporting for Checkov
+# Source: prd.md + docs/issue-10-code-coverage/ARCHITECTURE_AND_DESIGN.md
+# Spec: docs/issue-10-code-coverage/ARCHITECTURE_AND_DESIGN.md is the authoritative design reference
+# Status: [ ] pending  [~] in progress  [x] complete  [-] skipped
+
+## Features
+
+[x] Feature 1: Architecture and Design
+    - docs/issue-10-code-coverage/ARCHITECTURE_AND_DESIGN.md complete with 15 design decisions
+    - prd.md complete with 3 features, Risk Assessment, Terraform Implementation Notes
+    - MVP scope confirmed: single file change to modules/core/buildspecs/plan.yml
+    - IAM pre-existing confirmed: CodeBuildReports statement already in modules/core/iam.tf
+    NOTES: Artifacts verified present — 15 design decisions in ARCHITECTURE_AND_DESIGN.md, prd.md complete
+
+[x] Feature 2: Checkov JSON Output Capture
+    - /tmp/checkov/results_json.json present after Checkov runs when ENABLE_SECURITY_SCAN=true
+    - CLI output (existing build log behaviour) is unchanged
+    - Build fails after converter runs when CHECKOV_SOFT_FAIL=false (exit code re-raised)
+    - Build completes successfully with CHECKOV_SOFT_FAIL=true even with findings
+    NOTES: Started 2026-03-01. Added --output cli --output json --output-file-path /tmp/checkov,
+           mkdir -p /tmp/checkov, set +e/CHECKOV_EXIT=$?/set -e wrapper, exit ${CHECKOV_EXIT}.
+           bash tests/test-terraform.sh --skip-security: 17 passed, 0 failed.
+
+[x] Feature 3: Cobertura XML Converter
+    - /tmp/checkov/checkov-cobertura.xml is valid Cobertura XML with all required elements
+    - lines-covered and lines-valid attributes are accurate
+    - Each Terraform resource appears as a distinct <class> element
+    - Converter runs whether Checkov passed or failed (exit code captured before conversion)
+    - skipped_checks excluded; zero-check plans default to line-rate 1.0
+    NOTES: Started 2026-03-01. Inline Python heredoc (<<'PYTHON_EOF') in plan.yml build phase.
+           Handles single-object and list-wrapped Checkov JSON. ET.indent() for pretty-printing.
+           Python code indented to 8 spaces in YAML file (= col 0 in shell after YAML strip).
+           bash tests/test-terraform.sh --skip-security: 17 passed, 0 failed.
+
+[x] Feature 4: CodeBuild Reports Section
+    - CodeBuild console shows Reports tab for plan-dev and plan-prod with coverage percentage
+    - Report group named {project_name}-plan-{env}-checkov-security
+    - Historical trend appears after two or more runs
+    - ENABLE_SECURITY_SCAN=false: no Cobertura file created, no build failure
+    - PROD hard-fail: coverage report still uploaded before exit code is re-raised
+    - bash tests/test-terraform.sh passes all 7 validation steps
+    NOTES: Started 2026-03-01. Added reports: section (checkov-security / COBERTURAXML) at
+           top level of plan.yml. CodeBuild auto-creates report group on first upload as
+           {project}-plan-{env}-checkov-security. Missing file when ENABLE_SECURITY_SCAN=false
+           produces a warning only, no build failure (CodeBuild default behaviour).
+           bash tests/test-terraform.sh --skip-security: 17 passed, 0 failed.

@@ -108,12 +108,100 @@ phases:
           echo "Converting plan to JSON for security scan..."
           terraform show -json tfplan > tfplan.json
           echo "Running Checkov security scan..."
-          CHECKOV_ARGS="-f tfplan.json --framework terraform_plan"
+          mkdir -p /tmp/checkov
+          CHECKOV_ARGS="-f tfplan.json --framework terraform_plan --output cli --output json --output-file-path /tmp/checkov"
           if [ "${CHECKOV_SOFT_FAIL}" = "true" ]; then
             CHECKOV_ARGS="${CHECKOV_ARGS} --soft-fail"
           fi
+          set +e
           checkov ${CHECKOV_ARGS}
+          CHECKOV_EXIT=$?
+          set -e
           rm -f tfplan.json
+          echo "Converting Checkov results to Cobertura XML..."
+          python3 - <<'PYTHON_EOF'
+        import json, sys, time
+        import xml.etree.ElementTree as ET
+
+        json_path = "/tmp/checkov/results_json.json"
+        xml_path  = "/tmp/checkov/checkov-cobertura.xml"
+
+        try:
+            with open(json_path) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print("WARNING: Checkov JSON not found; skipping Cobertura XML generation.", file=sys.stderr)
+            sys.exit(0)
+
+        # Handle both single-object and list-wrapped Checkov JSON output formats
+        if isinstance(data, list):
+            data = data[0] if data else {}
+
+        results       = data.get("results", {})
+        passed_checks = results.get("passed_checks", [])
+        failed_checks = results.get("failed_checks",  [])
+
+        # Build per-resource check lists (skipped_checks excluded per spec)
+        resources = {}
+        for check in passed_checks:
+            r = check.get("resource", "unknown")
+            resources.setdefault(r, {"passed": [], "failed": []})["passed"].append(check.get("check_id", ""))
+        for check in failed_checks:
+            r = check.get("resource", "unknown")
+            resources.setdefault(r, {"passed": [], "failed": []})["failed"].append(check.get("check_id", ""))
+
+        # Global totals (skipped_checks do not contribute)
+        total_passed = sum(len(v["passed"]) for v in resources.values())
+        total_failed = sum(len(v["failed"]) for v in resources.values())
+        total        = total_passed + total_failed
+        line_rate    = (total_passed / total) if total > 0 else 1.0
+
+        # Build Cobertura XML tree
+        root = ET.Element("coverage", {
+            "line-rate":     f"{line_rate:.4f}",
+            "lines-covered": str(total_passed),
+            "lines-valid":   str(total),
+            "timestamp":     str(int(time.time())),
+            "version":       "1.0",
+        })
+        packages = ET.SubElement(root, "packages")
+        package  = ET.SubElement(packages, "package", {
+            "name":        "terraform-plan",
+            "line-rate":   f"{line_rate:.4f}",
+            "branch-rate": "0",
+            "complexity":  "0",
+        })
+        classes_el = ET.SubElement(package, "classes")
+
+        for resource, checks in sorted(resources.items()):
+            r_passed = len(checks["passed"])
+            r_total  = r_passed + len(checks["failed"])
+            r_rate   = (r_passed / r_total) if r_total > 0 else 1.0
+            cls = ET.SubElement(classes_el, "class", {
+                "name":        resource,
+                "filename":    resource,
+                "line-rate":   f"{r_rate:.4f}",
+                "branch-rate": "0",
+                "complexity":  "0",
+            })
+            lines_el = ET.SubElement(cls, "lines")
+            line_num = 1
+            for check_id in checks["passed"]:
+                ET.SubElement(lines_el, "line", {"number": str(line_num), "hits": "1", "name": check_id})
+                line_num += 1
+            for check_id in checks["failed"]:
+                ET.SubElement(lines_el, "line", {"number": str(line_num), "hits": "0", "name": check_id})
+                line_num += 1
+
+        ET.indent(root)
+        tree = ET.ElementTree(root)
+        with open(xml_path, "wb") as f:
+            f.write(b'<?xml version="1.0" ?>\n')
+            tree.write(f, encoding="utf-8", xml_declaration=False)
+
+        print(f"Cobertura XML written: {xml_path} (line-rate={line_rate:.4f}, covered={total_passed}/{total})")
+        PYTHON_EOF
+          exit ${CHECKOV_EXIT}
         fi
 
   post_build:
@@ -126,3 +214,9 @@ artifacts:
     - tfplan
   base-directory: ${IAC_WORKING_DIR}
   discard-paths: "yes"
+
+reports:
+  checkov-security:
+    files:
+      - /tmp/checkov/checkov-cobertura.xml
+    file-format: COBERTURAXML
