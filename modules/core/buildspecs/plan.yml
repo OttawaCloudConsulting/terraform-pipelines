@@ -218,5 +218,6 @@ artifacts:
 reports:
   checkov-security:
     files:
-      - /tmp/checkov/checkov-cobertura.xml
+      - checkov-cobertura.xml
+    base-directory: /tmp/checkov
     file-format: COBERTURAXML
