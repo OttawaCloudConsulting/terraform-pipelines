@@ -24,17 +24,17 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 │                        Consumer Root Module                         │
 │                                                                     │
 │   module "pipeline" {                                               │
-│     source = "modules/<variant>"   # default | default-dev-destroy   │
+│     source = "modules/<variant>"   # default | default-dev-destroy  │
 │     ...                                                             │
 │   }                                                                 │
-└───────────┬─────────────────────────────────────┬──────────────────┘
+└───────────┬─────────────────────────────────────┬───────────────────┘
             │                                     │
             ▼                                     ▼
 ┌───────────────────────┐    ┌────────────────────────────────────────┐
 │   Variant Wrapper     │    │   Variant Wrapper creates:             │
-│   (e.g. default/)     │    │   - CodePipeline V2 (stage config)    │
+│   (e.g. default/)     │    │   - CodePipeline V2 (stage config)     │
 │                       │    │   - Variant-specific resources         │
-│   Calls core module   │    │     (e.g. destroy CodeBuild project)  │
+│   Calls core module   │    │     (e.g. destroy CodeBuild project)   │
 └───────────┬───────────┘    └────────────────────────────────────────┘
             │
             ▼
@@ -43,15 +43,15 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 │                     Internal only — never called directly             │
 │                                                                       │
 │   Creates:                                                            │
-│   - 2 IAM Roles + Policies (CodePipeline SR, CodeBuild SR)          │
-│   - S3 State Bucket (conditional) + Artifact Bucket                  │
-│   - SNS Approval Topic + Email Subscriptions                         │
+│   - 2 IAM Roles + Policies (CodePipeline SR, CodeBuild SR)            │
+│   - S3 State Bucket (conditional) + Artifact Bucket                   │
+│   - SNS Approval Topic + Email Subscriptions                          │
 │   - CodeStar Connection (conditional)                                 │
-│   - 7 CloudWatch Log Groups (prebuild + 6 per-env)                  │
-│   - 7 CodeBuild Projects (prebuild + 6 per-env)                     │
+│   - 7 CloudWatch Log Groups (prebuild + 6 per-env)                    │
+│   - 7 CodeBuild Projects (prebuild + 6 per-env)                       │
 │                                                                       │
 │   Outputs:                                                            │
-│   - All resource ARNs, names, and IDs for variant wiring             │
+│   - All resource ARNs, names, and IDs for variant wiring              │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
