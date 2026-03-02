@@ -45,3 +45,9 @@ variable "configs_repo_path" {
   type        = string
   default     = "."
 }
+
+variable "codestar_connection_arn" {
+  type        = string
+  description = "ARN of the CodeStar connection for GitHub integration"
+}
+

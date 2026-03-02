@@ -13,6 +13,10 @@ provider "aws" {
   region = "ca-central-1"
 }
 
+data "aws_codestarconnections_connection" "github" {
+  name = "github-connection"
+}
+
 module "default_pipeline_with_configs" {
   source = "../../modules/default"
 
@@ -23,6 +27,8 @@ module "default_pipeline_with_configs" {
   dev_deployment_role_arn  = var.dev_deployment_role_arn
   prod_account_id          = var.prod_account_id
   prod_deployment_role_arn = var.prod_deployment_role_arn
+
+  codestar_connection_arn = var.codestar_connection_arn
 
   # Configs repo feature
   configs_repo        = var.configs_repo
