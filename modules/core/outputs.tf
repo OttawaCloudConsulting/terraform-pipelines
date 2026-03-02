@@ -90,3 +90,17 @@ output "all_tags" {
   description = "Merged tags for variant-owned resources."
   value       = local.all_tags
 }
+
+# -----------------------------------------------------------------------------
+# Configs Repo References
+# -----------------------------------------------------------------------------
+
+output "configs_enabled" {
+  description = "Whether the configs repo feature is active."
+  value       = local.configs_enabled
+}
+
+output "configs_repo_connection_arn" {
+  description = "Resolved CodeStar Connection ARN for the configs repo."
+  value       = local.configs_repo_connection_arn
+}

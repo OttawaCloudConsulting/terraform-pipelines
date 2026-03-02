@@ -6,17 +6,16 @@ Extends the Default variant with a DEV teardown stage. After PROD smoke tests pa
 
 | # | Stage | Type | Description |
 |---|-------|------|-------------|
-| 1 | Source | CodeStar | GitHub via CodeStar Connection |
+| 1 | Source | CodeStar | IaC repo checkout (+ configs repo when enabled) via CodeStar Connection |
 | 2 | Pre-Build | CodeBuild | Runs `cicd/prebuild/main.sh` |
-| 3 | Plan | CodeBuild | `terraform plan` + checkov scan |
-| 4 | Review | Manual Approval | Optional (`enable_review_gate = true`) |
-| 5 | Deploy DEV | CodeBuild | `terraform apply` to DEV |
-| 6 | Test DEV | CodeBuild | Runs `cicd/dev/smoke-test.sh` |
-| 7 | Approval | Manual Approval | Mandatory PROD approval |
-| 8 | Deploy PROD | CodeBuild | `terraform apply` to PROD |
-| 9 | Test PROD | CodeBuild | Runs `cicd/prod/smoke-test.sh` |
-| 10 | Destroy Approval | Manual Approval | **Optional** (`enable_destroy_approval = true`, the default) |
-| 10/11 | Destroy DEV | CodeBuild | `terraform destroy` against DEV |
+| 3 | DEV | Consolidated | **Plan DEV** (run_order=1) → **Approve DEV** (run_order=2, optional — `enable_review_gate`) → **Deploy DEV** (run_order=3) |
+| 4 | Test DEV | CodeBuild | Runs `cicd/dev/smoke-test.sh` |
+| 5 | PROD | Consolidated | **Plan PROD** (run_order=1) → **Approve PROD** (run_order=2, mandatory, SNS) → **Deploy PROD** (run_order=3) |
+| 6 | Test PROD | CodeBuild | Runs `cicd/prod/smoke-test.sh` |
+| 7 | Destroy Approval | Manual Approval | **Optional** — controlled by `enable_destroy_approval` (default: `true`) |
+| 7/8 | Destroy DEV | CodeBuild | `terraform destroy` against DEV via cross-account role |
+
+**Plan-apply integrity:** Each Plan action saves a `tfplan` artifact. The Deploy action in the same stage applies that exact saved plan — no re-planning at deploy time.
 
 ## Usage
 
@@ -42,8 +41,8 @@ The `enable_destroy_approval` variable controls whether a manual approval stage 
 
 | Value | Stages | Behavior |
 |-------|--------|----------|
-| `true` (default) | 11 | Manual approval required before DEV destroy |
-| `false` | 10 | Destroy runs automatically after PROD tests pass |
+| `true` (default) | 8 | Manual approval required before DEV destroy |
+| `false` | 7 | Destroy runs automatically after PROD tests pass |
 
 The approval gate uses the same SNS topic as the mandatory PROD approval, so the same subscribers are notified.
 
@@ -79,6 +78,21 @@ These resources are registered with core IAM policies via `additional_codebuild_
 - Ephemeral DEV environments that should be torn down after each deployment cycle
 - Cost optimization — avoid leaving DEV infrastructure running between deployments
 - Testing infrastructure-as-code destroy paths as part of the CI/CD lifecycle
+
+## Configs Repo Support
+
+This variant supports an optional second source repository for `.tfvars` files. When `configs_repo` is set, plan **and destroy** actions source tfvars from the configs repo. The Destroy DEV action receives the configs artifact as a secondary input.
+
+```hcl
+module "pipeline" {
+  source = "git::https://github.com/org/terraform-pipelines.git//modules/default-dev-destroy"
+  # ... required vars ...
+  configs_repo      = "my-org/my-project-configs"
+  configs_repo_path = "."
+}
+```
+
+See `docs/configs-repo/` for the full guide.
 
 ## Example
 

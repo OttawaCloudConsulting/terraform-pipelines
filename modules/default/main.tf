@@ -34,6 +34,11 @@ module "core" {
   artifact_retention_days   = var.artifact_retention_days
   iac_working_directory     = var.iac_working_directory
   tags                      = var.tags
+
+  configs_repo                         = var.configs_repo
+  configs_repo_branch                  = var.configs_repo_branch
+  configs_repo_path                    = var.configs_repo_path
+  configs_repo_codestar_connection_arn = var.configs_repo_codestar_connection_arn
 }
 
 # -----------------------------------------------------------------------------
@@ -71,6 +76,27 @@ resource "aws_codepipeline" "this" {
         OutputArtifactFormat = "CODEBUILD_CLONE_REF"
       }
     }
+
+    dynamic "action" {
+      for_each = var.configs_repo != "" ? [1] : []
+
+      content {
+        name             = "GitHub-Configs"
+        category         = "Source"
+        owner            = "AWS"
+        provider         = "CodeStarSourceConnection"
+        version          = "1"
+        output_artifacts = ["configs_output"]
+
+        configuration = {
+          ConnectionArn        = module.core.configs_repo_connection_arn
+          FullRepositoryId     = var.configs_repo
+          BranchName           = var.configs_repo_branch
+          DetectChanges        = "true"
+          OutputArtifactFormat = "CODE_ZIP"
+        }
+      }
+    }
   }
 
   # Stage 2: Pre-Build
@@ -102,12 +128,15 @@ resource "aws_codepipeline" "this" {
       provider         = "CodeBuild"
       version          = "1"
       run_order        = 1
-      input_artifacts  = ["source_output"]
+      input_artifacts  = var.configs_repo != "" ? ["source_output", "configs_output"] : ["source_output"]
       output_artifacts = ["dev_plan_output"]
 
-      configuration = {
-        ProjectName = module.core.codebuild_project_names["plan-dev"]
-      }
+      configuration = merge(
+        {
+          ProjectName = module.core.codebuild_project_names["plan-dev"]
+        },
+        var.configs_repo != "" ? { PrimarySource = "source_output" } : {}
+      )
     }
 
     dynamic "action" {
@@ -179,12 +208,15 @@ resource "aws_codepipeline" "this" {
       provider         = "CodeBuild"
       version          = "1"
       run_order        = 1
-      input_artifacts  = ["source_output"]
+      input_artifacts  = var.configs_repo != "" ? ["source_output", "configs_output"] : ["source_output"]
       output_artifacts = ["prod_plan_output"]
 
-      configuration = {
-        ProjectName = module.core.codebuild_project_names["plan-prod"]
-      }
+      configuration = merge(
+        {
+          ProjectName = module.core.codebuild_project_names["plan-prod"]
+        },
+        var.configs_repo != "" ? { PrimarySource = "source_output" } : {}
+      )
     }
 
     action {

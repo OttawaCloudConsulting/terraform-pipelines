@@ -6,15 +6,14 @@ The Default variant implements a 9-stage pipeline for cross-account Terraform de
 
 | # | Stage | Type | Description |
 |---|-------|------|-------------|
-| 1 | Source | CodeStar | GitHub via CodeStar Connection |
+| 1 | Source | CodeStar | IaC repo checkout (+ configs repo when enabled) via CodeStar Connection |
 | 2 | Pre-Build | CodeBuild | Runs `cicd/prebuild/main.sh` (developer-managed) |
-| 3 | Plan | CodeBuild | `terraform plan` + checkov security scan |
-| 4 | Review | Manual Approval | Optional gate (`enable_review_gate = true`) |
-| 5 | Deploy DEV | CodeBuild | `terraform apply` via cross-account role |
-| 6 | Test DEV | CodeBuild | Runs `cicd/dev/smoke-test.sh` (developer-managed) |
-| 7 | Approval | Manual Approval | Mandatory, SNS notification to subscribers |
-| 8 | Deploy PROD | CodeBuild | `terraform apply` via cross-account role |
-| 9 | Test PROD | CodeBuild | Runs `cicd/prod/smoke-test.sh` (developer-managed) |
+| 3 | DEV | Consolidated | **Plan DEV** (run_order=1) → **Approve DEV** (run_order=2, optional — `enable_review_gate`) → **Deploy DEV** (run_order=3) |
+| 4 | Test DEV | CodeBuild | Runs `cicd/dev/smoke-test.sh` (developer-managed) |
+| 5 | PROD | Consolidated | **Plan PROD** (run_order=1) → **Approve PROD** (run_order=2, mandatory, SNS) → **Deploy PROD** (run_order=3) |
+| 6 | Test PROD | CodeBuild | Runs `cicd/prod/smoke-test.sh` (developer-managed) |
+
+**Plan-apply integrity:** Each Plan action saves a `tfplan` artifact. The Deploy action in the same stage applies that exact saved plan — no re-planning at deploy time.
 
 ## Usage
 
@@ -96,3 +95,18 @@ my-terraform-project/
 ```
 
 All `cicd/` scripts and `environments/*.tfvars` files are optional. The pipeline gracefully skips missing files.
+
+## Configs Repo Support
+
+This variant supports an optional second source repository for `.tfvars` files. When `configs_repo` is set, plan actions source tfvars from the configs repo instead of the `environments/` directory above.
+
+```hcl
+module "pipeline" {
+  source = "git::https://github.com/org/terraform-pipelines.git//modules/default"
+  # ... required vars ...
+  configs_repo      = "my-org/my-project-configs"
+  configs_repo_path = "."
+}
+```
+
+See `docs/configs-repo/` for the full guide including cross-org connections and shared configs repos.

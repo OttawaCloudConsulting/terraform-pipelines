@@ -74,6 +74,26 @@ module "pipeline" {
 }
 ```
 
+### With Configs Repo (tfvars in a separate repository)
+
+```hcl
+module "pipeline" {
+  source = "git::https://github.com/org/terraform-pipelines.git//modules/default"
+
+  project_name             = "my-project"
+  github_repo              = "my-org/my-project"
+  dev_account_id           = "111111111111"
+  dev_deployment_role_arn  = "arn:aws:iam::111111111111:role/deployment-role"
+  prod_account_id          = "222222222222"
+  prod_deployment_role_arn = "arn:aws:iam::222222222222:role/deployment-role"
+
+  configs_repo      = "my-org/my-project-configs"  # enables configs repo feature
+  configs_repo_path = "."                           # environments/ at root of configs repo
+}
+```
+
+See `docs/configs-repo/` for cross-org connections, shared repos, and full usage details.
+
 See `examples/` for runnable configurations.
 
 ## Prerequisites
@@ -103,6 +123,7 @@ See `examples/` for runnable configurations.
 | `github_branch` | `string` | `"main"` | Branch to trigger pipeline. |
 | `iac_runtime` | `string` | `"terraform"` | `terraform` or `opentofu`. |
 | `iac_version` | `string` | `"latest"` | Version of IaC tool. |
+| `iac_working_directory` | `string` | `"."` | Subdirectory containing Terraform files, relative to repo root. |
 | `codestar_connection_arn` | `string` | `""` | Existing CodeStar ARN. Empty creates new. |
 | `create_state_bucket` | `bool` | `true` | Create S3 state bucket. |
 | `state_bucket` | `string` | `""` | Existing bucket (required when `create_state_bucket = false`). |
@@ -111,7 +132,8 @@ See `examples/` for runnable configurations.
 | `enable_review_gate` | `bool` | `false` | Optional review approval stage. |
 | `codebuild_compute_type` | `string` | `"BUILD_GENERAL1_SMALL"` | CodeBuild compute type. |
 | `codebuild_image` | `string` | `"aws/codebuild/amazonlinux-x86_64-standard:5.0"` | CodeBuild image. |
-| `checkov_soft_fail` | `bool` | `false` | Checkov as warnings only. |
+| `enable_security_scan` | `bool` | `true` | Run Checkov in Plan actions. PROD always hard-fails regardless of soft-fail setting. |
+| `checkov_soft_fail` | `bool` | `false` | Checkov findings advisory (DEV only). PROD always hard-fails. |
 | `codebuild_timeout_minutes` | `number` | `60` | Build timeout (5-480 min). |
 | `logging_bucket` | `string` | `""` | S3 bucket for access logs. |
 | `logging_prefix` | `string` | `""` | S3 key prefix for access logs. |
@@ -124,6 +146,19 @@ See `examples/` for runnable configurations.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `enable_destroy_approval` | `bool` | `true` | Require manual approval before DEV destroy. |
+
+### Configs Repo (Optional, All Variants)
+
+Enables a separate GitHub repository for `.tfvars` files. When set, plan actions source tfvars exclusively from the configs repo. The pipeline triggers on push to either repository. Leave `configs_repo` empty (the default) to use the baseline single-repo behavior.
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `configs_repo` | `string` | `""` | GitHub repo in `org/repo` format containing tfvars. Enables the feature when non-empty. |
+| `configs_repo_branch` | `string` | `"main"` | Branch to track in the configs repo. |
+| `configs_repo_path` | `string` | `"."` | Path within configs repo where `environments/` lives. Use `"."` for repo root. |
+| `configs_repo_codestar_connection_arn` | `string` | `""` | CodeStar Connection ARN for the configs repo. Defaults to IaC repo's connection. Required for cross-org repos. |
+
+See `docs/configs-repo/` for full usage guide, cross-org setup, and known limitations.
 
 ## Outputs (All Variants)
 
@@ -154,17 +189,23 @@ terraform-pipelines/
 │   │   ├── minimal/
 │   │   ├── complete/
 │   │   ├── opentofu/
-│   │   └── single-account/
-│   └── default-dev-destroy/
-│       └── minimal/
+│   │   ├── single-account/
+│   │   └── configs-repo/
+│   ├── default-dev-destroy/
+│   │   └── minimal/
+│   └── cicd/                                # Developer script templates (copy to your repo)
+│       ├── prebuild/main.sh
+│       ├── dev/smoke-test.sh
+│       └── prod/smoke-test.sh
 ├── tests/
-│   ├── test-terraform.sh            # Validation + deploy test script
-│   ├── default/                     # Default variant E2E test
-│   │   └── main.tf
-│   └── default-dev-destroy/         # DevDestroy variant E2E test
-│       └── main.tf
+│   ├── test-terraform.sh                    # Validation + deploy test script
+│   ├── default/                             # Default variant E2E test
+│   ├── default-dev-destroy/                 # DevDestroy variant E2E test
+│   ├── default-configs/                     # Default variant + configs repo E2E test
+│   └── default-dev-destroy-configs/         # DevDestroy variant + configs repo E2E test
 ├── docs/
 │   ├── ARCHITECTURE_AND_DESIGN.md
+│   ├── configs-repo/                        # Configs repo feature guide
 │   ├── shared/
 │   ├── default/
 │   └── default-dev-destroy/
@@ -179,5 +220,6 @@ terraform-pipelines/
 - **Architecture:** `docs/ARCHITECTURE_AND_DESIGN.md`
 - **Default variant:** `docs/default/`
 - **DevDestroy variant:** `docs/default-dev-destroy/`
+- **Configs repo feature:** `docs/configs-repo/`
 - **Original MVP statement:** `docs/shared/codepipeline-mvp-statement.md`
 - **Changelog:** `CHANGELOG.md`

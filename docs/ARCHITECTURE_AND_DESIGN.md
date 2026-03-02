@@ -24,17 +24,17 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 │                        Consumer Root Module                         │
 │                                                                     │
 │   module "pipeline" {                                               │
-│     source = "modules/<variant>"   # default | default-dev-destroy   │
+│     source = "modules/<variant>"   # default | default-dev-destroy  │
 │     ...                                                             │
 │   }                                                                 │
-└───────────┬─────────────────────────────────────┬──────────────────┘
+└───────────┬─────────────────────────────────────┬───────────────────┘
             │                                     │
             ▼                                     ▼
 ┌───────────────────────┐    ┌────────────────────────────────────────┐
 │   Variant Wrapper     │    │   Variant Wrapper creates:             │
-│   (e.g. default/)     │    │   - CodePipeline V2 (stage config)    │
+│   (e.g. default/)     │    │   - CodePipeline V2 (stage config)     │
 │                       │    │   - Variant-specific resources         │
-│   Calls core module   │    │     (e.g. destroy CodeBuild project)  │
+│   Calls core module   │    │     (e.g. destroy CodeBuild project)   │
 └───────────┬───────────┘    └────────────────────────────────────────┘
             │
             ▼
@@ -43,15 +43,15 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 │                     Internal only — never called directly             │
 │                                                                       │
 │   Creates:                                                            │
-│   - 2 IAM Roles + Policies (CodePipeline SR, CodeBuild SR)          │
-│   - S3 State Bucket (conditional) + Artifact Bucket                  │
-│   - SNS Approval Topic + Email Subscriptions                         │
+│   - 2 IAM Roles + Policies (CodePipeline SR, CodeBuild SR)            │
+│   - S3 State Bucket (conditional) + Artifact Bucket                   │
+│   - SNS Approval Topic + Email Subscriptions                          │
 │   - CodeStar Connection (conditional)                                 │
-│   - 7 CloudWatch Log Groups (prebuild + 6 per-env)                  │
-│   - 7 CodeBuild Projects (prebuild + 6 per-env)                     │
+│   - 7 CloudWatch Log Groups (prebuild + 6 per-env)                    │
+│   - 7 CodeBuild Projects (prebuild + 6 per-env)                       │
 │                                                                       │
 │   Outputs:                                                            │
-│   - All resource ARNs, names, and IDs for variant wiring             │
+│   - All resource ARNs, names, and IDs for variant wiring              │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -86,6 +86,8 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 | `dev_account_id` | `string` | DEV account ID pass-through |
 | `prod_account_id` | `string` | PROD account ID pass-through |
 | `all_tags` | `map(string)` | Merged tags for variant-owned resources |
+| `configs_enabled` | `bool` | Whether the configs repo feature is active (true when `configs_repo` is non-empty) |
+| `configs_repo_connection_arn` | `string` | Resolved CodeStar Connection ARN for the configs repo (deduped; falls back to IaC repo connection) |
 
 ## Variant Architectures
 
@@ -178,9 +180,21 @@ terraform-pipelines/
 │   │   ├── minimal/
 │   │   ├── complete/
 │   │   ├── opentofu/
-│   │   └── single-account/
-│   └── default-dev-destroy/
-│       └── minimal/
+│   │   ├── single-account/
+│   │   └── configs-repo/              # Default variant with configs repo feature
+│   ├── default-dev-destroy/
+│   │   └── minimal/
+│   └── cicd/                          # Developer-managed script templates (copy to your repo)
+│       ├── prebuild/main.sh
+│       ├── dev/smoke-test.sh
+│       └── prod/smoke-test.sh
+│
+├── tests/
+│   ├── test-terraform.sh              # Validation + E2E deploy script (7 gates)
+│   ├── default/                       # Default variant E2E test config
+│   ├── default-dev-destroy/           # DevDestroy variant E2E test config
+│   ├── default-configs/               # Default variant + configs repo E2E test config
+│   └── default-dev-destroy-configs/   # DevDestroy + configs repo E2E test config
 │
 ├── docs/
 │   ├── ARCHITECTURE_AND_DESIGN.md     # This file
@@ -189,10 +203,12 @@ terraform-pipelines/
 │   │   ├── codepipeline-mvp-statement.md
 │   │   └── diagrams/
 │   ├── default/
-│   └── default-dev-destroy/
+│   ├── default-dev-destroy/
+│   └── configs-repo/                  # Configs repo feature usage guide
 │
 ├── CLAUDE.md
 ├── prd.md
+├── CHANGELOG.md
 └── progress.txt
 ```
 
@@ -448,7 +464,16 @@ To run E2E tests, you need three AWS accounts with cross-account deployment role
 | DEV Target | DEV deployment target |
 | PROD Target | PROD deployment target |
 
-Configure test values in `tests/<variant>/terraform.tfvars` (copy from `terraform.tfvars.example`).
+Four test configurations exist, one per variant + feature combination:
+
+| Test Directory | Variant + Feature | `--deploy` target |
+|----------------|-------------------|-------------------|
+| `tests/default/` | Default | `--deploy default` |
+| `tests/default-dev-destroy/` | Default-DevDestroy | `--deploy default-dev-destroy` |
+| `tests/default-configs/` | Default + configs repo | `--deploy default-configs` |
+| `tests/default-dev-destroy-configs/` | DevDestroy + configs repo | `--deploy default-dev-destroy-configs` |
+
+Configure test values in `tests/<variant>/terraform.tfvars` (copy from `terraform.tfvars.example`). Set `AWS_PROFILE` to the Automation Account CLI profile before running `--deploy`.
 
 ## Out of Scope
 
@@ -461,3 +486,75 @@ Configure test values in `tests/<variant>/terraform.tfvars` (copy from `terrafor
 | Customer-managed KMS keys | SSE-S3 sufficient for artifact encryption. |
 | Empty plan short-circuiting | Always proceed through Approve and Deploy. |
 | Migration tooling / moved blocks | Not needed — clean implementation. |
+
+## Configs Repo Feature
+
+The configs repo feature allows `.tfvars` files to live in a dedicated repository, separate from the IaC repo. When enabled, plan and destroy actions source tfvars exclusively from the configs repo instead of the IaC repo. The pipeline triggers on push to either repository. This feature is entirely optional — when no configs repo is specified, the pipeline behaves identically to the base behavior.
+
+### New Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `configs_repo` | `string` | `""` | GitHub repository in `org/repo` format containing tfvars files. When empty, tfvars are sourced from the IaC repo (default behavior). |
+| `configs_repo_branch` | `string` | `"main"` | Branch of the configs repo to track. |
+| `configs_repo_path` | `string` | `"."` | Path within configs repo where the `environments/` directory is located. Must be `"."` or a relative path without `..`, leading/trailing slashes, or absolute paths. |
+| `configs_repo_codestar_connection_arn` | `string` | `""` | CodeStar Connection ARN for the configs repo. When empty, reuses the IaC repo's connection. Must be provided when the configs repo is in a different GitHub organization. |
+
+### Source Stage Changes
+
+When `configs_repo` is non-empty, the Source stage gains a second `CodeStarSourceConnection` action alongside the existing IaC repo action:
+
+```
+Source stage (configs_repo enabled):
+  Action 1: checkout IaC repo     → artifact: source_output   (unchanged)
+  Action 2: checkout configs repo → artifact: configs_output  (new)
+```
+
+Both actions have `DetectChanges = "true"`, so the pipeline triggers on push to either repository. The configs artifact is output in `CODE_ZIP` format. When `configs_repo = ""`, the Source stage is identical to the base implementation.
+
+### Artifact Flow
+
+Plan and Destroy actions receive `configs_output` as a secondary input artifact. CodeBuild exposes it at `$CODEBUILD_SRC_DIR_configs_output`. The `PrimarySource` is explicitly set to `source_output` (IaC repo) so the CodeBuild working directory defaults to the IaC source.
+
+```
+Plan-DEV / Plan-PROD / Destroy-DEV (configs enabled):
+  input_artifacts: [source_output, configs_output]
+  PrimarySource:   source_output
+
+Deploy-DEV / Deploy-PROD / Test-DEV / Test-PROD / Pre-Build:
+  unchanged — configs artifact not wired
+```
+
+Deploy and Test actions are not wired to the configs artifact. Deploy applies the saved `tfplan` binary (no tfvars resolution needed at apply time). Test scripts are developer-managed and unaffected.
+
+### Buildspec Changes
+
+`plan.yml` and `destroy.yml` use the `CONFIGS_ENABLED` and `CONFIGS_PATH` environment variables (baked into the CodeBuild project by core locals) to conditionally source tfvars:
+
+```
+When CONFIGS_ENABLED=true:
+  Validate configs artifact directory exists and is non-empty (hard fail if missing)
+  Resolve: ${CODEBUILD_SRC_DIR_configs_output}/${CONFIGS_PATH}/environments/${TARGET_ENV}.tfvars
+  Validate resolved path stays within configs artifact directory (path traversal prevention)
+  If file exists: pass -var-file to terraform plan/destroy
+  If file missing: proceed without -var-file (graceful — same as base behavior)
+
+When CONFIGS_ENABLED=false (or unset):
+  Resolve: environments/${TARGET_ENV}.tfvars  (relative to IaC working directory)
+  If file exists: pass -var-file to terraform plan/destroy
+  If file missing: proceed without -var-file  (unchanged base behavior)
+```
+
+`CONFIGS_ENABLED` defaults to `"false"` when unset, making manual CodeBuild triggers safe. `prebuild.yml`, `deploy.yml`, and `test.yml` are unchanged.
+
+### IAM Policy
+
+When the configs repo uses a different CodeStar Connection than the IaC repo, both ARNs are included in the `CodeStarConnectionAccess` IAM policy statements for both the CodePipeline and CodeBuild service roles. When both repos share the same connection, the policy is unchanged — a single ARN after `distinct()` deduplication.
+
+### Known Limitations
+
+1. **Toggle unsupported** — toggling `configs_repo` on/off on an existing pipeline may force-replace the CodePipeline resource due to the change in Source stage action count. This is a prerequisite decision before first deployment, not a runtime toggle.
+2. **Shared configs repo triggers all referencing pipelines** — a push to a shared configs repo triggers every pipeline that references it, not only those whose `configs_repo_path` subtree changed. Use per-project paths (via `configs_repo_path`) to scope changes, but triggering is still repo-wide.
+3. **Version skew risk** — because either repo push can trigger the pipeline independently, a coordinated IaC + config change may run with mismatched versions. Best practice: merge IaC changes first, then config changes.
+4. **Execution mode** — the pipeline uses `SUPERSEDED` execution mode. A new trigger supersedes in-progress executions, which can cause partially-applied plans to be discarded.
+5. **Cross-org connection not auto-detected** — if the configs repo is in a different GitHub organization, the consumer must explicitly provide `configs_repo_codestar_connection_arn`. The module does not detect or validate cross-org usage at plan time; the pipeline will fail at runtime with a CodeStar Connections error if the wrong connection is used.
