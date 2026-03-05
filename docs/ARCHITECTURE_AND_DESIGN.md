@@ -8,6 +8,67 @@ The pipeline follows a **per-environment plan-apply** model: each environment (D
 
 The authoritative requirements are in `prd.md`. The original refinement analysis is in `docs/REFINEMENT_1.md`. The original MVP scope is in `docs/shared/codepipeline-mvp-statement.md`.
 
+```mermaid
+graph TB
+    subgraph GitHub
+        IaCRepo["IaC Repository
+(Terraform/OpenTofu code)"]
+        ConfigsRepo["Configs Repository
+(optional: tfvars files)"]
+    end
+
+    subgraph AutoAccount["Automation Account"]
+        CP["AWS CodePipeline V2"]
+        CB["CodeBuild Projects ×7
+(prebuild, plan-dev/prod,
+deploy-dev/prod, test-dev/prod)"]
+        S3S["S3 State Bucket
+(Terraform state)"]
+        S3A["S3 Artifact Bucket
+(plan files, pipeline artifacts)"]
+        SNS["SNS Topic
+(approval notifications)"]
+        CSC["CodeStar Connection
+(GitHub OAuth)"]
+        IAM["IAM Service Roles
+(CodePipeline + CodeBuild)"]
+    end
+
+    subgraph DEVAccount["DEV Target Account"]
+        DevRole["Deployment Role
+(pre-existing prerequisite)"]
+        DevResources["AWS Resources
+(managed by Terraform)"]
+    end
+
+    subgraph PRODAccount["PROD Target Account"]
+        ProdRole["Deployment Role
+(pre-existing prerequisite)"]
+        ProdResources["AWS Resources
+(managed by Terraform)"]
+    end
+
+    IaCRepo -->|"push triggers pipeline"| CSC
+    ConfigsRepo -->|"push triggers pipeline
+(when configs_repo enabled)"| CSC
+    CSC --> CP
+    CP --> CB
+    CP --> S3A
+    CP -->|"approval request"| SNS
+    CB -->|"state read/write
+(instance profile creds)"| S3S
+    CB -->|"assume role
+(provider override file)"| DevRole
+    CB -->|"assume role
+(provider override file)"| ProdRole
+    CB -->|"sts assume-role
+(test.yml only)"| DevRole
+    DevRole --> DevResources
+    ProdRole --> ProdResources
+    IAM --> CP
+    IAM --> CB
+```
+
 ### Variant Summary
 
 | Variant | Module Source | Stages | Account Model | Use Case |
@@ -18,6 +79,41 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 ## Module Architecture
 
 ### Shared Core + Overlay Pattern
+
+```mermaid
+graph TB
+    Consumer["**Consumer Root Module**
+module 'pipeline' { source = 
+'modules/default' }"]
+
+    subgraph Variant["Variant Wrapper (e.g. modules/default/)"]
+        VMain["main.tf — calls core + defines 
+        CodePipeline"]
+        VVars["variables.tf — identical copy 
+        of core variables"]
+    end
+
+    subgraph Core["Core Module (modules/core/) — internal only"]
+        CoreResources["IAM Roles × 2
+S3 State Bucket (conditional)
+S3 Artifact Bucket
+SNS Approval Topic
+CodeStar Connection (conditional)
+CloudWatch Log Groups × 7
+CodeBuild Projects × 7"]
+    end
+
+    Pipeline["AWS CodePipeline V2
+(stage definitions are 
+variant-specific)"]
+    DestroyProject["Destroy CodeBuild Project
+(DevDestroy variant only)"]
+
+    Consumer --> VMain
+    VMain -->|"module core { ... }"| CoreResources
+    VMain --> Pipeline
+    VMain -->|"DevDestroy only"| DestroyProject
+```
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -69,6 +165,20 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 | CodePipeline V2 | Variant | 1 | Stage definitions are variant-specific |
 | Destroy CodeBuild Project | Variant (DevDestroy only) | 0-1 | `<project>-destroy` + log group |
 
+### Variables Interface
+
+Variant wrappers (`modules/default/variables.tf`, `modules/default-dev-destroy/variables.tf`) are **identical copies** of `modules/core/variables.tf` — they are not thin pass-throughs. Every variable accepted by core is re-declared in the variant, and the variant passes all values through to the core module call. This means consumers see the same interface (30 or 31 variables) regardless of which variant they use. Maintainers adding variables to core must update all variant wrappers as well.
+
+### CodeStar Connection First-Run Activation
+
+When `codestar_connection_arn = ""` (the default), the module creates a new `aws_codestarconnections_connection` resource. AWS provisions this in `PENDING` state — it cannot be used by the pipeline until a one-time **manual OAuth authorization** is completed in the AWS Console:
+
+```
+AWS Console → Developer Tools → Connections → <project-name>-github → Update pending connection
+```
+
+The pipeline will fail at the Source stage with a permissions error until this step is completed. This is a one-time step per connection. If reusing an existing `AVAILABLE` connection across pipelines, pass its ARN via `codestar_connection_arn` to skip creation entirely.
+
 ### Core Module Outputs
 
 | Output | Type | Purpose |
@@ -93,33 +203,78 @@ The authoritative requirements are in `prd.md`. The original refinement analysis
 
 ### Default Variant (6 Stages)
 
-```
-Source → Pre-Build → DEV [Plan→Approve→Deploy] → Test DEV → PROD [Plan→Approve→Deploy] → Test PROD
-```
+```mermaid
+flowchart LR
+    S1["**Stage 1**
+Source
+GitHub checkout"]
+    S2["**Stage 2**
+Pre-Build
+cicd/prebuild/main.sh"]
 
-**Stage 3 (DEV) internal actions:**
-```
-run_order=1: PlanDEV        (CodeBuild: plan-dev, output: dev_plan_output)
-run_order=2: ApproveDEV     (Manual Approval, conditional on enable_review_gate)
-run_order=3: DeployDEV      (CodeBuild: deploy-dev, input: dev_plan_output)
-```
+    subgraph S3["**Stage 3 — DEV**"]
+        direction TB
+        PD["Plan DEV
+run_order=1
+terraform plan + Checkov"]
+        AD["Approve DEV
+run_order=2
+*(if enable_review_gate)*"]
+        DD["Deploy DEV
+run_order=3
+terraform apply tfplan"]
+        PD --> AD --> DD
+    end
 
-**Stage 5 (PROD) internal actions:**
-```
-run_order=1: PlanPROD       (CodeBuild: plan-prod, output: prod_plan_output)
-run_order=2: ApprovePROD    (Manual Approval, mandatory, SNS notification)
-run_order=3: DeployPROD     (CodeBuild: deploy-prod, input: prod_plan_output)
+    S4["**Stage 4**
+Test DEV
+cicd/dev/smoke-test.sh"]
+
+    subgraph S5["**Stage 5 — PROD**"]
+        direction TB
+        PP["Plan PROD
+run_order=1
+terraform plan + Checkov"]
+        AP["Approve PROD
+run_order=2
+*mandatory, SNS notification*"]
+        DP["Deploy PROD
+run_order=3
+terraform apply tfplan"]
+        PP --> AP --> DP
+    end
+
+    S6["**Stage 6**
+Test PROD
+cicd/prod/smoke-test.sh"]
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6
 ```
 
 ### Default-DevDestroy Variant (7-8 Stages)
 
-```
-Source → Pre-Build → DEV [Plan→Approve→Deploy] → Test DEV → PROD [Plan→Approve→Deploy] → Test PROD → [Destroy Approval] → Destroy DEV
-```
-
 Stages 1-6 identical to Default. Adds:
 - Stage 7 (optional): Destroy Approval — controlled by `enable_destroy_approval` (default: `true`)
 - Stage 7/8: Destroy DEV — `terraform destroy` against DEV state via cross-account role
+
+```mermaid
+flowchart LR
+    Base["Stages 1–6
+*(identical to Default)*"]
+
+    subgraph Added["Added by Default-DevDestroy"]
+        direction TB
+        DA["Destroy Approval
+*(if enable_destroy_approval)*
+Manual gate"]
+        DD["Destroy DEV
+terraform destroy
+via cross-account role"]
+        DA --> DD
+    end
+
+    Base --> DA
+```
 
 ### Cross-Account Credential Flow
 
@@ -140,6 +295,38 @@ Automation Account (pipeline host)
 The override file is generated via `cat <<'EOF'` + `envsubst` to expand `${TARGET_ROLE}` and `${TARGET_ENV}`, then cleaned up in `post_build`. No STS assume-role calls or exported credentials in buildspecs.
 
 Plan and Deploy actions for the same environment use the same cross-account deployment role via the override file. Plan needs read access for accurate diffs; Deploy needs write access for apply.
+
+**Credential strategy by buildspec:**
+
+| Buildspec | Credential Mechanism | Reason |
+|-----------|----------------------|--------|
+| `plan.yml` | Provider override file (`_pipeline_override.tf`) — no STS calls, no `export AWS_*` | Terraform provider handles assumption transparently; S3 backend uses instance profile directly |
+| `deploy.yml` | Provider override file (`_pipeline_override.tf`) — same as plan | Identical approach for apply; backend also uses instance profile |
+| `destroy.yml` | Provider override file (`_pipeline_override.tf`) — same as plan/deploy | Destroy is a Terraform operation, same credential model |
+| `test.yml` | Explicit `aws sts assume-role` + `export AWS_ACCESS_KEY_ID/SECRET/TOKEN` | Developer smoke-test scripts call AWS APIs directly (not via Terraform), so real credentials must be injected into the shell environment |
+| `prebuild.yml` | Instance profile only (no assumption) | Prebuild runs in the Automation Account context; no cross-account access needed |
+
+The `test.yml` approach is the exception: because developer-managed smoke-test scripts invoke AWS CLI or SDKs directly, the CodeBuild shell environment must have credentials for the target account exported as standard `AWS_*` variables before the script runs.
+
+```mermaid
+sequenceDiagram
+    participant CB as CodeBuild<br/>(Automation Account)
+    participant S3 as S3 State Bucket<br/>(Automation Account)
+    participant STS as AWS STS
+    participant Target as Target Account<br/>(DEV or PROD)
+
+    Note over CB,Target: plan.yml / deploy.yml / destroy.yml
+    CB->>CB: Generate _pipeline_override.tf<br/>(provider assume_role block)
+    CB->>S3: terraform init — backend S3 access<br/>(instance profile creds, no assume_role)
+    CB->>Target: terraform plan / apply / destroy<br/>(Terraform provider assumes TARGET_ROLE<br/>transparently via override file)
+    CB->>CB: rm _pipeline_override.tf (post_build)
+
+    Note over CB,Target: test.yml only
+    CB->>STS: aws sts assume-role --role-arn TARGET_ROLE
+    STS-->>CB: Temporary credentials
+    CB->>CB: export AWS_ACCESS_KEY_ID / SECRET / TOKEN
+    CB->>Target: cicd/${TARGET_ENV}/smoke-test.sh<br/>(AWS CLI / SDK calls with exported creds)
+```
 
 ## Repository Structure
 
@@ -229,6 +416,24 @@ terraform-pipelines/
 |-----------|---------|-------|
 | `destroy.yml` | Default-DevDestroy only (Destroy DEV stage) | Unchanged — already targets DEV only |
 
+### OpenTofu Compatibility
+
+All runtime-installing buildspecs (`plan.yml`, `deploy.yml`, `destroy.yml`) use a unified compatibility approach:
+
+```bash
+if [ "${IAC_RUNTIME}" = "opentofu" ]; then
+  # Install OpenTofu
+  curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method standalone
+  # Create symlink so all subsequent commands use "terraform" unchanged
+  ln -sf /usr/local/bin/tofu /usr/local/bin/terraform
+else
+  # Install Terraform normally
+fi
+terraform --version   # works regardless of runtime
+```
+
+When `iac_runtime = "opentofu"`, OpenTofu is installed and a symlink `terraform → tofu` is created at `/usr/local/bin/terraform`. Every subsequent command in the buildspec (`terraform init`, `terraform plan`, `terraform apply`) transparently invokes OpenTofu via this alias. No conditional branching is needed after the install phase. The `terraform` binary name remains consistent across all pipeline stages regardless of the configured runtime.
+
 ### plan.yml Flow
 
 ```
@@ -269,12 +474,20 @@ REPORTS (static buildspec directive — always present):
 INSTALL:
   - Install IaC runtime (terraform or opentofu)
 
+PRE_BUILD:
+  - Locate saved plan via PLAN_ARTIFACT environment variable:
+      PLAN_DIR_VAR="CODEBUILD_SRC_DIR_${PLAN_ARTIFACT}"
+      PLAN_DIR="${!PLAN_DIR_VAR}"          # bash indirect expansion
+      cp "${PLAN_DIR}/tfplan" "${CODEBUILD_SRC_DIR}/${IAC_WORKING_DIR}/tfplan"
+
 BUILD:
   - cd to IAC_WORKING_DIR (anchored to CODEBUILD_SRC_DIR)
-  - Assume cross-account role (TARGET_ROLE)
+  - Generate _pipeline_override.tf (cross-account role assumption)
   - terraform init with real env state
-  - terraform apply tfplan (saved plan from Plan action artifact)
+  - terraform apply tfplan (the plan copied in pre_build)
 ```
+
+**PLAN_ARTIFACT mechanism:** The CodePipeline action passes the plan artifact name to CodeBuild via an environment variable override `PLAN_ARTIFACT` (e.g., `dev_plan_output` or `prod_plan_output`). CodeBuild exposes secondary input artifacts at `$CODEBUILD_SRC_DIR_<artifactName>`. The buildspec uses bash indirect variable expansion (`${!PLAN_DIR_VAR}`) to dynamically construct the correct path at runtime. This allows the single `deploy.yml` buildspec to be reused for both DEV and PROD deployments without hardcoding artifact names.
 
 ## Checkov Coverage Reporting
 
@@ -426,6 +639,31 @@ resource "aws_codebuild_project" "this" {
 }
 ```
 
+## Input Variable Validation
+
+Core module variables include runtime Terraform `validation` blocks that fail at `terraform plan` with descriptive error messages. These enforce correctness before any resources are created:
+
+| Variable | Constraint | Rule |
+|----------|-----------|------|
+| `project_name` | Regex `^[a-z][a-z0-9-]{1,28}[a-z0-9]$` | 3–30 chars, lowercase alphanumeric start/end, hyphens allowed |
+| `project_name` | Second validation | No consecutive hyphens (S3 bucket naming compliance) |
+| `github_repo` | Regex `^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$` | Must be `org/repo` format |
+| `dev_account_id` | Regex `^[0-9]{12}$` | Exactly 12 digits |
+| `prod_account_id` | Regex `^[0-9]{12}$` | Exactly 12 digits |
+| `dev_deployment_role_arn` | Regex `^arn:aws:iam::[0-9]{12}:role/.+$` | Valid IAM role ARN format |
+| `prod_deployment_role_arn` | Regex `^arn:aws:iam::[0-9]{12}:role/.+$` | Valid IAM role ARN format |
+| `codestar_connection_arn` | Empty or valid ARN regex | Accepts both `codestar-connections` and `codeconnections` service names |
+| `codebuild_compute_type` | `contains([...])` | Must be `BUILD_GENERAL1_SMALL/MEDIUM/LARGE` |
+| `codebuild_image` | Prefix `^aws/codebuild/` | Enforces AWS-managed images only (no custom Docker) |
+| `codebuild_timeout_minutes` | Range 5–480 | CodeBuild service limits |
+| `log_retention_days` | `contains([1,3,5,7,14,30,60,...,3653])` | Restricted to CloudWatch Logs–allowed values |
+| `artifact_retention_days` | Range 1–365 | S3 lifecycle constraint |
+| `iac_runtime` | `contains(["terraform","opentofu"])` | Mutually exclusive runtimes |
+| `configs_repo` | Empty or `org/repo` regex | When non-empty, must match repo format |
+| `configs_repo_branch` | `length > 0` | Non-empty branch name |
+| `configs_repo_path` | Three validations | Must be `"."` or relative path; no `..`; no leading slash |
+| `configs_repo_codestar_connection_arn` | Empty or valid ARN regex | Same format as `codestar_connection_arn` |
+
 ## Artifact Flow Detail
 
 ### Within a Consolidated Environment Stage
@@ -446,6 +684,27 @@ resource "aws_codebuild_project" "this" {
 ```
 
 The Plan action's `output_artifacts` produces `dev_plan_output` containing the `tfplan` file. The Deploy action's `input_artifacts` consumes `dev_plan_output`. The Approval action (when present) blocks between them.
+
+```mermaid
+sequenceDiagram
+    participant Plan as Plan DEV<br/>(run_order=1)
+    participant S3 as S3 Artifact Bucket
+    participant Approve as Approve DEV<br/>(run_order=2, optional)
+    participant Deploy as Deploy DEV<br/>(run_order=3)
+
+    Plan->>Plan: terraform plan -out=tfplan
+    Plan->>Plan: checkov scan (tfplan.json → cobertura XML)
+    Plan->>S3: Upload artifact: dev_plan_output<br/>(contains: tfplan binary only)
+    Plan-->>Approve: run_order=1 complete — unblocks run_order=2
+
+    Note over Approve: Human reviews plan in console<br/>and clicks Approve (or auto-skipped<br/>when enable_review_gate=false)
+    Approve-->>Deploy: Approval granted — unblocks run_order=3
+
+    Deploy->>S3: Download artifact: dev_plan_output<br/>(PLAN_ARTIFACT env var → CODEBUILD_SRC_DIR_dev_plan_output)
+    Deploy->>Deploy: cp tfplan to IAC_WORKING_DIR
+    Deploy->>Deploy: terraform init (backend only)
+    Deploy->>Deploy: terraform apply tfplan<br/>(exact saved plan — no re-planning)
+```
 
 ### Plan Artifact Contents
 
@@ -473,11 +732,20 @@ When `enable_security_scan=false`, neither environment runs the Checkov scan.
 
 ### Encryption
 
-- S3 artifact bucket: SSE-S3 encryption, SSL-only policy, Block Public Access
-- S3 state bucket: SSE-S3 encryption, versioning enabled, SSL-only policy
+- S3 artifact bucket: SSE-S3 (AES256) encryption, SSL-only bucket policy, Block Public Access enabled
+- S3 state bucket: SSE-S3 (AES256) encryption, versioning enabled, SSL-only bucket policy
 - Plan artifacts (tfplan files): same SSE-S3 protection as all pipeline artifacts
-- SNS topic: KMS encryption
+- SNS topic: encrypted using `alias/aws/sns` (AWS-managed SNS KMS key — **not** a customer-managed CMK). Consumers with CMK compliance requirements (e.g., requiring customer-controlled key rotation or cross-account key policies) must bring their own SNS topic ARN via a future variable.
 - CodeBuild coverage report groups: SSE-S3 (auto-created default); CMK upgrade requires explicit `aws_codebuild_report_group` resource (post-MVP, see Checkov Coverage Reporting section)
+
+### Artifact Lifecycle
+
+The artifact bucket has an S3 lifecycle configuration applied:
+
+- **Object expiry**: All objects expire after `artifact_retention_days` days (default: 30, range: 1–365)
+- **Incomplete multipart uploads**: Aborted after 7 days regardless of `artifact_retention_days`
+
+The state bucket intentionally has **no** object expiry — all state file versions are retained indefinitely for rollback and audit purposes.
 
 ### IAM Least Privilege
 
@@ -514,35 +782,51 @@ When `enable_security_scan=false`, neither environment runs the Checkov scan.
 
 ### Resource Creation Order
 
-```
-1. Independent (parallel):
-   ├── S3 State Bucket (conditional)
-   ├── S3 Artifact Bucket
-   ├── SNS Topic + Subscriptions
-   ├── CodeStar Connection (conditional)
-   └── CloudWatch Log Groups (x7)
+```mermaid
+graph TB
+    subgraph Wave1["Wave 1 — Independent (parallel)"]
+        S3S["S3 State Bucket
+(conditional)"]
+        S3A["S3 Artifact Bucket"]
+        SNS["SNS Topic +
+Subscriptions"]
+        CSC["CodeStar Connection
+(conditional)"]
+        CWL["CloudWatch Log Groups × 7"]
+    end
 
-2. Depends on buckets + log groups:
-   └── IAM Roles + Policies (x2)
-       ├── References: bucket ARNs, log group ARNs, deployment role ARNs
-       └── References: additional_codebuild_project_arns, additional_log_group_arns
+    subgraph Wave2["Wave 2 — Depends on Wave 1"]
+        IAM["IAM Roles + Policies × 2
+(CodePipeline SR + CodeBuild SR)
+references: bucket ARNs, 
+log group ARNs,
+deployment role ARNs"]
+    end
 
-3. Depends on IAM roles + log groups:
-   └── CodeBuild Projects (x7)
-       ├── References: codebuild service role ARN
-       └── References: log group names
+    subgraph Wave3["Wave 3 — Depends on Wave 2"]
+        CB["CodeBuild Projects × 7
+references: IAM role ARN,
+log group names"]
+    end
 
-4. Depends on core outputs (variant-owned):
-   ├── Destroy CodeBuild Project (DevDestroy only)
-   └── Destroy CloudWatch Log Group (DevDestroy only)
+    subgraph Wave4["Wave 4 — Variant-owned (depends on core outputs)"]
+        Destroy["Destroy CodeBuild Project +
+Log Group
+(DevDestroy only)"]
+    end
 
-5. Depends on everything above:
-   └── CodePipeline V2
-       ├── References: codebuild project names
-       ├── References: codepipeline service role ARN
-       ├── References: artifact bucket name
-       ├── References: codestar connection ARN
-       └── References: sns topic ARN
+    subgraph Wave5["Wave 5 — Depends on everything"]
+        CP["CodePipeline V2
+references: CodeBuild project 
+names, CodePipeline IAM role, 
+artifact bucket, CodeStar 
+connection, SNS topic ARN"]
+    end
+
+    Wave1 --> Wave2
+    Wave2 --> Wave3
+    Wave3 --> Wave4
+    Wave4 --> Wave5
 ```
 
 ## Test Environment
@@ -565,6 +849,22 @@ Four test configurations exist, one per variant + feature combination:
 | `tests/default-dev-destroy-configs/` | DevDestroy + configs repo | `--deploy default-dev-destroy-configs` |
 
 Configure test values in `tests/<variant>/terraform.tfvars` (copy from `terraform.tfvars.example`). Set `AWS_PROFILE` to the Automation Account CLI profile before running `--deploy`.
+
+### Validation Gates
+
+`tests/test-terraform.sh` runs 7 sequential gates. Gates 1–3 are hard-fail (non-zero exit terminates the script). Gates 4–6 are advisory (findings are printed as warnings but do not fail the run). Gate 7 is hard-fail and only runs with `--deploy`.
+
+| Gate | Tool | Scope | On Failure |
+|------|------|-------|------------|
+| 1. git-secrets | git-secrets | All files in repo | Hard-fail (exit 1) |
+| 2. fmt | `terraform fmt -check -recursive` | All HCL in repo root | Hard-fail (exit 2) |
+| 3. init+validate | `terraform init -backend=false` + `validate` | All modules, examples, and tests dirs | Hard-fail (exit 3) |
+| 4. tflint | tflint | Modules only | Advisory (warning, continues) |
+| 5. checkov | checkov | Modules only | Advisory (warning, continues) |
+| 6. trivy | trivy `--severity HIGH,CRITICAL` | Modules only | Advisory (warning, continues) |
+| 7. plan+apply | `terraform plan -out=tfplan` + `apply tfplan` | `tests/<deploy-target>/` | Hard-fail (exit non-zero) |
+
+Gates 5 and 6 are skipped entirely when `--skip-security` is passed. Gate 7 only runs when `--deploy <name>` is specified; without it, a "skipped" notice is printed and the script exits successfully. Tools that are not installed are skipped with a warning (git-secrets, tflint, checkov, trivy) — terraform is required and causes an immediate hard-fail if absent.
 
 ## Out of Scope
 
@@ -616,7 +916,14 @@ Source stage (configs_repo enabled):
   Action 2: checkout configs repo → artifact: configs_output  (new)
 ```
 
-Both actions have `DetectChanges = "true"`, so the pipeline triggers on push to either repository. The configs artifact is output in `CODE_ZIP` format. When `configs_repo = ""`, the Source stage is identical to the base implementation.
+Both actions have `DetectChanges = "true"`, so the pipeline triggers on push to either repository. When `configs_repo = ""`, the Source stage is identical to the base implementation.
+
+**Artifact format distinction:** The two source actions use different `OutputArtifactFormat` values by design:
+
+| Action | Format | Reason |
+|--------|--------|--------|
+| IaC repo (`source_output`) | `CODEBUILD_CLONE_REF` | Full git clone — preserves commit history, branch refs, and git metadata needed for tools that introspect git context |
+| Configs repo (`configs_output`) | `CODE_ZIP` | Archive only — configs repo is read-only configuration; no git metadata needed, and `CODE_ZIP` avoids the IAM `codeconnections:UseConnection` requirement for secondary sources in some connection types |
 
 ### Artifact Flow
 
@@ -633,6 +940,42 @@ Deploy-DEV / Deploy-PROD / Test-DEV / Test-PROD / Pre-Build:
 
 Deploy and Test actions are not wired to the configs artifact. Deploy applies the saved `tfplan` binary (no tfvars resolution needed at apply time). Test scripts are developer-managed and unaffected.
 
+```mermaid
+flowchart LR
+    subgraph Source["Stage 1 — Source"]
+        IaC["GitHub: IaC repo
+OutputArtifactFormat:
+CODEBUILD_CLONE_REF
+→ source_output"]
+        Configs["GitHub: Configs repo
+OutputArtifactFormat:
+CODE_ZIP
+→ configs_output"]
+    end
+
+    subgraph PlanAction["Plan DEV / Plan PROD"]
+        direction TB
+        PS["PrimarySource: source_output
+(IaC working dir)"]
+        CS["Secondary: configs_output
+($CODEBUILD_SRC_DIR_configs_output)"]
+        TF["terraform plan
+-var-file=${CONFIGS_PATH}/environments/${TARGET_ENV}.tfvars"]
+        PS & CS --> TF
+    end
+
+    subgraph Deploy["Deploy DEV / Deploy PROD
+Pre-Build / Test DEV / Test PROD"]
+        DNote["source_output only
+(configs_output not wired —
+no tfvars needed at apply time)"]
+    end
+
+    IaC -->|"source_output"| PlanAction
+    Configs -->|"configs_output"| PlanAction
+    IaC -->|"source_output"| Deploy
+```
+
 ### Buildspec Changes
 
 `plan.yml` and `destroy.yml` use the `CONFIGS_ENABLED` and `CONFIGS_PATH` environment variables (baked into the CodeBuild project by core locals) to conditionally source tfvars:
@@ -641,7 +984,7 @@ Deploy and Test actions are not wired to the configs artifact. Deploy applies th
 When CONFIGS_ENABLED=true:
   Validate configs artifact directory exists and is non-empty (hard fail if missing)
   Resolve: ${CODEBUILD_SRC_DIR_configs_output}/${CONFIGS_PATH}/environments/${TARGET_ENV}.tfvars
-  Validate resolved path stays within configs artifact directory (path traversal prevention)
+  Path traversal prevention (see below)
   If file exists: pass -var-file to terraform plan/destroy
   If file missing: proceed without -var-file (graceful — same as base behavior)
 
@@ -650,6 +993,19 @@ When CONFIGS_ENABLED=false (or unset):
   If file exists: pass -var-file to terraform plan/destroy
   If file missing: proceed without -var-file  (unchanged base behavior)
 ```
+
+**Path traversal prevention:** When `CONFIGS_ENABLED=true`, the buildspec defends against `../` escape attacks in `CONFIGS_PATH`. After constructing the tfvars path, it uses `realpath -m` to fully resolve any symbolic path components, then validates the resolved absolute path stays within the configs artifact directory using a `case` statement:
+
+```bash
+CONFIGS_REAL=$(realpath -m "${CONFIGS_TFVARS}")
+CONFIGS_DIR_REAL=$(realpath "${CODEBUILD_SRC_DIR_configs_output}")
+case "${CONFIGS_REAL}" in
+  "${CONFIGS_DIR_REAL}/"*) ;;  # safe — path is within artifact dir
+  *) echo "ERROR: Resolved path is outside configs artifact directory." >&2; exit 1 ;;
+esac
+```
+
+This is the runtime defence. The Terraform-level variable validation (`configs_repo_path` rejecting `..`, leading slashes, and absolute paths) is the plan-time defence — both layers work together.
 
 `CONFIGS_ENABLED` defaults to `"false"` when unset, making manual CodeBuild triggers safe. `prebuild.yml`, `deploy.yml`, and `test.yml` are unchanged.
 
