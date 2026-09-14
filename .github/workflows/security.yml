@@ -1,0 +1,1206 @@
+---
+# Callable security scanning workflow.
+# Invoked by repo-local callers (see pr-security.yml) and, from Phase 20,
+# by external repositories as a reusable workflow.
+# All third-party actions are pinned to full commit SHAs (ADR-004).
+# Gate mode is `gate_mode` ("blocking" or "report-only"), defaulting to
+# "report-only". Supply it either as a `workflow_call` input or as the
+# caller repo's `GATE_MODE` variable — switching modes needs no YAML edit.
+#
+# ADOPTION: this file IS the canonical copy. A Mode A consumer fetches it
+# byte-identical at a published tag (alongside pr-security.yml) and edits
+# NOTHING in it. There is exactly ONE per-repo substitution point across the
+# whole bundle, `gate_mode`, and it lives in the CALLER repository, set with
+# `gh variable set GATE_MODE --body blocking -R OWNER/REPO`; `report-only`
+# is the default and needs no action from a consumer that wants it.
+
+name: Security Scans
+
+on:
+  workflow_call:
+    inputs:
+      gate_mode:
+        description: >-
+          "blocking" or "report-only". Omit to fall back to the caller repo's
+          GATE_MODE variable, then to "report-only" (D-03).
+        required: false
+        type: string
+
+# Explicit FULL permission set, not a subset. A called workflow's block can
+# only REDUCE what the caller granted — leaving this at `contents: read`
+# would downgrade the caller's grant back out and 403 every SARIF upload.
+permissions:
+  contents: read
+  # Required for SARIF upload to the GitHub Security tab. Re-declared here, not
+  # newly granted: the caller's job-level set (pr-security.yml) is the ceiling.
+  security-events: write
+  # Required only for private repositories. Read-only; carried for Phase 20
+  # consumer-template portability.
+  actions: read
+
+# Workflow-level env is the only scope that sees both `inputs` and `vars` at
+# once. Inside a called workflow, `vars` resolves to the CALLER repository,
+# which is what lets the copy-paste consumption mode change gate_mode with no
+# YAML edit. The input carries no `default:`, so an omitted input is `""`
+# (falsy) and the `||` chain reaches `vars.GATE_MODE` instead of stopping dead.
+env:
+  GATE_MODE: ${{ inputs.gate_mode || vars.GATE_MODE || 'report-only' }}
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # SAST — Semgrep CE
+  # Scans source code for security vulnerabilities, injection patterns,
+  # and unsafe constructs using community rules (no account required).
+  # ─────────────────────────────────────────────────────────────────────────
+  sast:
+    name: SAST — Semgrep CE
+    runs-on: ubuntu-latest
+    steps:
+      # This is the enum control: GitHub does not validate a `type: string`
+      # value against a list, so without this step "string enum" is a
+      # convention, not a constraint. The empty string is rejected on
+      # purpose — it is the shape an omitted-and-unresolved input produces,
+      # and a blank mode must fail loudly rather than resolve to anything.
+      # Deliberately placed before checkout: an invalid value fails the job
+      # before any scan runs, and the job's trailing `if: always()` upload
+      # and "Show scan output files" steps will then also fail on missing
+      # files. The job is red either way; the first failure in the log is
+      # the legible one, and fail-before-scan is the intended behaviour.
+      - name: Validate gate_mode
+        run: |
+          case "${GATE_MODE}" in
+            blocking|report-only) echo "gate_mode=${GATE_MODE}" ;;
+            *) echo "invalid gate_mode: '${GATE_MODE}' (expected blocking|report-only)"; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - run: pip install semgrep==1.177.0
+      # Assumption A7 fallback ladder if PEP 668 blocks the pip install above:
+      #   1) pipx install semgrep==1.177.0   (pipx is preinstalled on GitHub-hosted ubuntu-latest)
+      #   2) python -m pip install --break-system-packages semgrep==1.177.0
+
+      # p/default, not the auto config value — that combination is a hard error with --metrics=off.
+      # --json-output=/--sarif-output= compose in one run; the bare --json/--sarif
+      # display flags are mutually exclusive and must not appear.
+      - name: Run Semgrep
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06: native --error kept, step tolerated
+        run: |
+          semgrep scan --config p/default --metrics=off --error \
+            --json-output=semgrep-results.json \
+            --sarif-output=semgrep.sarif .
+
+      - name: Show scan output files
+        if: always()
+        run: ls -l semgrep-results.json semgrep.sarif
+
+      - name: Upload Semgrep SARIF
+        id: sarif-semgrep
+        if: always()                     # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep         # MANDATORY — distinguishes this analysis
+          # wait-for-processing is deliberately NOT set: its default of true is
+          # what turns an async ingestion rejection into a step failure that
+          # the outcome assertion below can see.
+
+      # Deliberately WITHOUT continue-on-error, and deliberately NOT guarded on
+      # the upload step itself. ADR-001 tolerates a failed upload; it does not
+      # license shipping a phase whose uploads never landed, so the tolerated
+      # step above is read back here and a non-success outcome turns this job
+      # red. The fork/Dependabot guard belongs on THIS step and never on the
+      # upload: a fork PR gets a read-only GITHUB_TOKEN regardless of the
+      # `permissions` key, so the upload cannot succeed there, and whether a
+      # Dependabot run can be granted security-events: write is unconfirmed —
+      # a Dependabot PR is expected here, because Phase 14 pinned
+      # actions/checkout one patch behind on purpose. Guarding the upload
+      # instead would silently publish nothing on those runs.
+      # Private-repo capability guard (all six SARIF verify steps below): this
+      # account is a User account, so no repository it owns carries GitHub
+      # Advanced Security. `private == true` and "code scanning unavailable"
+      # were measured equivalent for every consumer that exists today (Phase
+      # 20 plan 01, run 34802848411 — upload-sarif failed with "Code scanning
+      # is not enabled for this repository"). This guard SKIPS a check that
+      # cannot pass on a private repo; it never DELETES a check that could —
+      # that distinction keeps the broken-but-green protection intact. If a
+      # GHAS-bearing organisation consumer ever appears, the correct evolution
+      # is a new `workflow_call` boolean input naming that expectation, deliberately
+      # not built speculatively here because it would add a second per-repo
+      # substitution point and break D-04 (`gate_mode` stays the only one).
+      - name: Verify Semgrep SARIF upload landed
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.event.repository.private == false
+        run: |
+          python3 - semgrep.sarif <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path) as handle:
+              data = json.load(handle)
+          if "runs" not in data:
+              print("SARIF has no runs key: {}".format(path))
+              sys.exit(1)
+          runs = data.get("runs") or []
+          print("{}: {} run(s)".format(path, len(runs)))
+          for run in runs:
+              driver = (run.get("tool") or {}).get("driver") or {}
+              print("  tool.driver.name={} results={}".format(
+                  driver.get("name"), len(run.get("results") or [])))
+          PY
+          if [ "${{ steps.sarif-semgrep.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.sarif-semgrep.outcome }} — the upload did not land."
+            echo "Most likely cause: security-events: write missing from the CALLER"
+            echo "(.github/workflows/pr-security.yml), which a called workflow cannot elevate."
+            exit 1
+          fi
+          # Secondary, for the log only — never the sole assertion: sarif-id is
+          # populated before wait-for-processing can reject the SARIF.
+          echo "sarif-semgrep sarif-id=${{ steps.sarif-semgrep.outputs.sarif-id }}"
+
+      # RETENTION FORMAT — the contract the other four artifact steps share.
+      # Each tool's NATIVE output is retained unchanged; nothing is normalised
+      # to a common schema. 17-RESEARCH measured DefectDojo's parser inventory
+      # directly: dojo/tools/ already ships checkov, gitleaks, npm_audit_7_plus,
+      # pip_audit, sarif, semgrep, tflint and trivy parsers — every tool in this
+      # stack, plus a generic SARIF parser. Normalising would DESTROY import
+      # fidelity for the future DEFECT-01 pipeline this retention exists to
+      # feed. Note the runner's npm is 10.x, so the applicable parser is
+      # npm_audit_7_plus ("NPM Audit v7+ Scan"), not the legacy npm_audit.
+      # SARIF is retained alongside the JSON because tflint emits no JSON in
+      # this workflow at all — without it SCA-03's results would not be kept.
+      - name: Upload SAST reports
+        id: artifact-sast
+        if: always()                     # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: semgrep-results          # unique across the five parallel jobs
+          path: |
+            semgrep-results.json
+            semgrep.sarif
+          # error, not warn: both files are produced unconditionally by the
+          # single Semgrep run above, so a missing one is a real failure.
+          if-no-files-found: error
+          # Explicit, never omitted in favour of the repository default, because
+          # Criterion 3 requires a STATED period. 90 is the documented maximum
+          # "unless changed from the repository settings page".
+          retention-days: 90
+
+      # Deliberately WITHOUT continue-on-error, for the same reason the SARIF
+      # verify steps are: ADR-001 requires continue-on-error: true on the upload
+      # above, so without this step a failed artifact upload is invisible — the
+      # run stays green and CICD-03 retains nothing. This closes the same blind
+      # spot the six SARIF upload/verify pairs close.
+      #
+      # OPEN OBSERVATION, HANDED TO PHASE 18 — the fork/Dependabot guard below
+      # is applied here for UNIFORMITY with the six SARIF verify steps, NOT
+      # because it was measured to be needed. actions/upload-artifact uses the
+      # Actions runtime token (ACTIONS_RUNTIME_TOKEN) rather than GITHUB_TOKEN,
+      # so an artifact upload may well succeed on a fork PR or a Dependabot PR
+      # where a SARIF upload cannot. That was NOT verified this phase. A verify
+      # step that fails on an unverified assumption is worse than one that
+      # skips, so the guard stays until someone measures it.
+      - name: Verify SAST artifact upload landed
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+        run: |
+          if [ "${{ steps.artifact-sast.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.artifact-sast.outcome }} — the artifact did not land."
+            echo "CICD-03 retains nothing for this job; a future DefectDojo import has no input."
+            exit 1
+          fi
+          # For the log, so 17-05's live verification has a run-local record to
+          # cross-check against the gh api artifact listing for this run.
+          echo "artifact-sast artifact-id=${{ steps.artifact-sast.outputs.artifact-id }}"
+          echo "artifact-sast artifact-url=${{ steps.artifact-sast.outputs.artifact-url }}"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # IaC — Checkov
+  # Scans infrastructure as code (Terraform, CloudFormation, K8s, Dockerfile,
+  # GitHub Actions workflows) with 1,000+ built-in policies.
+  # ─────────────────────────────────────────────────────────────────────────
+  iac:
+    name: IaC — Checkov
+    runs-on: ubuntu-latest
+    steps:
+      # This is the enum control: GitHub does not validate a `type: string`
+      # value against a list, so without this step "string enum" is a
+      # convention, not a constraint. The empty string is rejected on
+      # purpose — it is the shape an omitted-and-unresolved input produces,
+      # and a blank mode must fail loudly rather than resolve to anything.
+      # Deliberately placed before checkout: an invalid value fails the job
+      # before any scan runs, and the job's trailing `if: always()` upload
+      # and "Show scan output files" steps will then also fail on missing
+      # files. The job is red either way; the first failure in the log is
+      # the legible one, and fail-before-scan is the intended behaviour.
+      - name: Validate gate_mode
+        run: |
+          case "${GATE_MODE}" in
+            blocking|report-only) echo "gate_mode=${GATE_MODE}" ;;
+            *) echo "invalid gate_mode: '${GATE_MODE}' (expected blocking|report-only)"; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # SHA-pinned action; it internally pulls ghcr.io/bridgecrewio/checkov:3.3.17
+      # by mutable tag — ADR-004's SHA-pin guarantee stops at the action boundary,
+      # this residual risk is accepted for this phase (T-15-13).
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0  # v12.3123.0
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06: native failing behaviour tolerated at step level
+        with:
+          directory: .
+          output_format: cli,json,sarif
+          output_file_path: console,checkov-results.json,checkov.sarif
+          quiet: true
+          soft_fail: false               # D-04: keep native failing exit code
+
+      - name: Show scan output files
+        if: always()
+        run: ls -l checkov-results.json checkov.sarif
+
+      - name: Upload Checkov SARIF
+        id: sarif-checkov
+        if: always()                     # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        with:
+          sarif_file: checkov.sarif
+          category: checkov         # MANDATORY — distinguishes this analysis
+          # wait-for-processing is deliberately NOT set: its default of true is
+          # what turns an async ingestion rejection into a step failure that
+          # the outcome assertion below can see.
+
+      # Same contract as `Verify Semgrep SARIF upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard sits on the verify step, never on the
+      # upload.
+      - name: Verify Checkov SARIF upload landed
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.event.repository.private == false
+        run: |
+          python3 - checkov.sarif <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path) as handle:
+              data = json.load(handle)
+          if "runs" not in data:
+              print("SARIF has no runs key: {}".format(path))
+              sys.exit(1)
+          runs = data.get("runs") or []
+          print("{}: {} run(s)".format(path, len(runs)))
+          for run in runs:
+              driver = (run.get("tool") or {}).get("driver") or {}
+              print("  tool.driver.name={} results={}".format(
+                  driver.get("name"), len(run.get("results") or [])))
+          PY
+          if [ "${{ steps.sarif-checkov.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.sarif-checkov.outcome }} — the upload did not land."
+            echo "Most likely cause: security-events: write missing from the CALLER"
+            echo "(.github/workflows/pr-security.yml), which a called workflow cannot elevate."
+            exit 1
+          fi
+          # Secondary, for the log only — never the sole assertion: sarif-id is
+          # populated before wait-for-processing can reject the SARIF.
+          echo "sarif-checkov sarif-id=${{ steps.sarif-checkov.outputs.sarif-id }}"
+
+      # Same retention-format contract as `Upload SAST reports` in the sast job.
+      - name: Upload IaC reports
+        id: artifact-iac
+        if: always()                     # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: checkov-results          # unique across the five parallel jobs
+          path: |
+            checkov-results.json
+            checkov.sarif
+          # error, not warn: the single Checkov run writes both files
+          # unconditionally, so a missing one is a real failure.
+          if-no-files-found: error
+          # Explicit — Criterion 3 requires a stated period, and 90 is the
+          # maximum without a repository-settings change. See the sast job.
+          retention-days: 90
+
+      # Same contract as `Verify SAST artifact upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard is applied for uniformity with the SARIF
+      # verify steps rather than because upload-artifact was measured to fail
+      # on those runs — see that step for the full note.
+      - name: Verify IaC artifact upload landed
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+        run: |
+          if [ "${{ steps.artifact-iac.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.artifact-iac.outcome }} — the artifact did not land."
+            echo "CICD-03 retains nothing for this job; a future DefectDojo import has no input."
+            exit 1
+          fi
+          # For the log, so 17-05's live verification has a run-local record to
+          # cross-check against the gh api artifact listing for this run.
+          echo "artifact-iac artifact-id=${{ steps.artifact-iac.outputs.artifact-id }}"
+          echo "artifact-iac artifact-url=${{ steps.artifact-iac.outputs.artifact-url }}"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # SCA — four scanners in ONE job. Adding a sixth job would break three
+  # things at once: CICD-01's "5 parallel jobs" (already Complete), Phase 17's
+  # per-job artifact map, and Phase 18's required-check list.
+  #   SCA-04  Trivy filesystem — generic sweep, no per-ecosystem configuration
+  #   SCA-01  npm audit        — lockfile advisories, one run per lockfile dir
+  #   SCA-02  pip-audit        — Python requirements advisories
+  #   SCA-03  tflint           — Terraform provider and module pinning
+  # ─────────────────────────────────────────────────────────────────────────
+  sca:
+    # FROZEN. 15-05-SUMMARY recorded this string as one of the five verbatim
+    # check-run names Phase 18 hard-codes into its branch-protection required
+    # check list. It is inaccurate now that four scanners run in this job, and
+    # it stays anyway: renaming it would leave branch protection pointing at a
+    # check that no longer exists — silently non-blocking.
+    name: SCA — Trivy Filesystem
+    runs-on: ubuntu-latest
+    steps:
+      # This is the enum control: GitHub does not validate a `type: string`
+      # value against a list, so without this step "string enum" is a
+      # convention, not a constraint. The empty string is rejected on
+      # purpose — it is the shape an omitted-and-unresolved input produces,
+      # and a blank mode must fail loudly rather than resolve to anything.
+      # Deliberately placed before checkout: an invalid value fails the job
+      # before any scan runs, and the job's trailing `if: always()` upload
+      # and "Show scan output files" steps will then also fail on missing
+      # files. The job is red either way; the first failure in the log is
+      # the legible one, and fail-before-scan is the intended behaviour.
+      - name: Validate gate_mode
+        run: |
+          case "${GATE_MODE}" in
+            blocking|report-only) echo "gate_mode=${GATE_MODE}" ;;
+            *) echo "invalid gate_mode: '${GATE_MODE}' (expected blocking|report-only)"; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
+        with:
+          version: v0.74.0
+          cache: true
+
+      # No language-runtime setup action is needed here: Python 3.12.3, pip
+      # 24.0 and npm 10.9.8 are all preinstalled on GitHub-hosted
+      # ubuntu-latest, and so is the ubuntu-26.04 image's newer set.
+      - run: pip install pip-audit==2.10.1
+      # Assumption A7 fallback ladder if PEP 668 blocks the pip install above:
+      #   1) pipx install pip-audit==2.10.1   (pipx is preinstalled on GitHub-hosted ubuntu-latest)
+      #   2) python -m pip install --break-system-packages pip-audit==2.10.1
+
+      # Download-then-verify-then-extract, never curl | sh — the SAST job's own
+      # p/default ruleset (gha-curl-pipe-shell) flags the pipe pattern.
+      # The one line that does NOT transfer from the Gitleaks install below:
+      # tflint ships a .zip, not a .tar.gz. unzip is preinstalled on the runner.
+      # The SHA-256 is read from the official v0.64.0 checksums.txt asset.
+      - name: Install tflint
+        run: |
+          curl -sSfL -o tflint.zip \
+            https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip
+          echo "cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537  tflint.zip" \
+            | sha256sum -c -
+          sudo unzip -o -d /usr/local/bin tflint.zip
+
+      # Detection is its own step rather than a bare `if: hashFiles(…) != ''`
+      # on each scan step: a step skipped by `if:` produces no log output at
+      # all, and the skip path has to say out loud that the ecosystem is absent
+      # (Criterion 4). Phase 20: the logic is now inlined here rather than
+      # delegated, so this file is self-contained for a consumer repository
+      # that has no `scripts/` directory at all (neither copy-paste nor
+      # `uses:` consumption mode can rely on repo-local helper scripts
+      # existing). `scripts/detect-*.sh` remain in THIS repository as
+      # `scripts/smoke-scans.sh`'s helpers — that gate still needs a callable
+      # implementation of the same logic to run offline — and
+      # `scripts/check-detector-parity.sh` is what now proves the inlined
+      # bodies below and those scripts agree on the same tree.
+      # No continue-on-error on a detect step: the detectors are contractually
+      # exit-0 on BOTH branches, so a non-zero exit is an infrastructure
+      # failure and must fail the job.
+      # Pathspec: '*package-lock.json'. Git's default (non-':(glob)') pathspec
+      # wildcards already cross '/', so a single leading '*' matches every
+      # depth. The two wrong forms, both measured (16-RESEARCH Pitfall 9):
+      #   'package-lock.json'      -> root-anchored, matches nothing in a
+      #                                subdirectory
+      #   '**/package-lock.json'   -> matches nested files ONLY, misses the
+      #                                repo root
+      # A missed manifest would produce a "SKIP:" line on a repo that really
+      # does have npm dependencies — a false pass that is invisible in the
+      # log. The one legitimate `|| true` here: `grep -v` exits 1 when its
+      # input is empty, and under `set -o pipefail` that would abort the
+      # detector on a repository with no lockfiles at all. This `|| true` is
+      # on the discovery pipeline only — never on a branch that decides
+      # whether files were found.
+      - name: Detect npm lockfiles
+        id: npm
+        run: |
+          git ls-files -- '*package-lock.json' \
+            | grep -v -e '/node_modules/' -e '^node_modules/' > npm-lockfiles.txt || true
+          count=$(grep -c . npm-lockfiles.txt || true)
+          if [ "${count:-0}" -eq 0 ]; then
+            echo "SKIP: no package-lock.json found — npm sub-scan not applicable to this repository"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "FOUND ${count} npm lockfile(s):"
+          cat npm-lockfiles.txt
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      # Pathspec: '*requirements*.txt'. Git's default (non-':(glob)') pathspec
+      # wildcards already cross '/', so a single leading '*' matches every
+      # depth. The two wrong forms, both measured (16-RESEARCH Pitfall 9):
+      #   'requirements*.txt'      -> root-anchored, matches NEITHER root nor
+      #                                nested
+      #   '**/requirements*.txt'   -> matches nested files ONLY, misses the
+      #                                repo root
+      # A missed manifest would produce a "SKIP:" line on a repo that really
+      # does have Python dependencies — a false pass that is invisible in the
+      # log. The leading wildcard also matches dev-requirements.txt and
+      # requirements-test.txt, which is desirable: those pin real
+      # dependencies too.
+      - name: Detect Python requirements files
+        id: py
+        run: |
+          git ls-files -- '*requirements*.txt' > py-reqs.txt || true
+          count=$(grep -c . py-reqs.txt || true)
+          if [ "${count:-0}" -eq 0 ]; then
+            echo "SKIP: no requirements*.txt found — Python sub-scan not applicable to this repository"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "FOUND ${count} Python requirements file(s):"
+          cat py-reqs.txt
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      # Pathspec: '*.tf'. Git's default (non-':(glob)') pathspec wildcards
+      # already cross '/', so a single leading '*' matches every depth. The
+      # two wrong forms, by analogy with the measured matrix in 16-RESEARCH
+      # Pitfall 9:
+      #   '.tf' / 'main.tf'        -> root-anchored, matches nothing in a
+      #                                subdirectory
+      #   '**/*.tf'                -> matches nested files ONLY, misses the
+      #                                repo root
+      # A missed manifest would produce a "SKIP:" line on a repo that really
+      # has Terraform — a false pass that is invisible in the log.
+      - name: Detect Terraform files
+        id: tf
+        run: |
+          git ls-files -- '*.tf' > tf-files.txt || true
+          count=$(grep -c . tf-files.txt || true)
+          if [ "${count:-0}" -eq 0 ]; then
+            echo "SKIP: no .tf files found — Terraform pinning sub-scan not applicable to this repository"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "FOUND ${count} Terraform file(s):"
+          cat tf-files.txt
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      # --scanners vuln only, deliberately: misconfig is the IaC job's remit and
+      # secrets are Gitleaks' remit. No per-ecosystem plugin or .trivyignore — this
+      # is SCA-04's generic sweep.
+      - name: Run Trivy filesystem scan (JSON for retention)
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06
+        run: |
+          trivy fs . --scanners vuln \
+            --format json --output trivy-fs.json \
+            --exit-code 1 --severity HIGH,CRITICAL
+
+      # TWO steps, not one chained run: block — the same reason the Gitleaks
+      # pair in the secrets job is split. GitHub's default shell is bash -e
+      # and BOTH runs exit 1 on findings by design (D-04), so a second
+      # command in the same run: block would be silently dropped.
+      # No `trivy convert` here: direct --format sarif sets
+      # originalUriBaseIds.ROOTPATH to the SCAN ROOT, while trivy convert
+      # sets it to the INPUT JSON FILE path — measured 2026-09-11 with trivy
+      # 0.74.0. The converted form makes every result resolve to a
+      # nonexistent trivy-fs.json/... path in code scanning.
+      # The flags below are deliberately identical to the JSON run above, so
+      # the retained artifact and the uploaded SARIF describe the same
+      # finding set. Do not change one without the other.
+      - name: Run Trivy filesystem scan (SARIF for code scanning)
+        if: always()                     # previous step exits 1 on findings
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06
+        run: |
+          trivy fs . --scanners vuln \
+            --format sarif --output trivy-fs.sarif \
+            --exit-code 1 --severity HIGH,CRITICAL
+
+      - name: Show scan output files
+        if: always()
+        run: ls -l trivy-fs.json trivy-fs.sarif
+
+      - name: Upload Trivy filesystem SARIF
+        id: sarif-trivy-fs
+        if: always()                     # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs       # MANDATORY — distinguishes this analysis
+          # Not optional here: trivy-image.sarif in the container job carries
+          # the identical tool.driver.name of `Trivy`, and GitHub fails the
+          # second upload of the same tool + category in one run. Dropping
+          # either category would also collapse both scanners into one
+          # analysis and destroy the per-tool attribution.
+          # wait-for-processing is deliberately NOT set: its default of true is
+          # what turns an async ingestion rejection into a step failure that
+          # the outcome assertion below can see.
+
+      # Same contract as `Verify Semgrep SARIF upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard sits on the verify step, never on the
+      # upload.
+      - name: Verify Trivy filesystem SARIF upload landed
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.event.repository.private == false
+        run: |
+          python3 - trivy-fs.sarif <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path) as handle:
+              data = json.load(handle)
+          if "runs" not in data:
+              print("SARIF has no runs key: {}".format(path))
+              sys.exit(1)
+          runs = data.get("runs") or []
+          print("{}: {} run(s)".format(path, len(runs)))
+          for run in runs:
+              driver = (run.get("tool") or {}).get("driver") or {}
+              print("  tool.driver.name={} results={}".format(
+                  driver.get("name"), len(run.get("results") or [])))
+          PY
+          if [ "${{ steps.sarif-trivy-fs.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.sarif-trivy-fs.outcome }} — the upload did not land."
+            echo "Most likely cause: security-events: write missing from the CALLER"
+            echo "(.github/workflows/pr-security.yml), which a called workflow cannot elevate."
+            exit 1
+          fi
+          # Secondary, for the log only — never the sole assertion: sarif-id is
+          # populated before wait-for-processing can reject the SARIF.
+          echo "sarif-trivy-fs sarif-id=${{ steps.sarif-trivy-fs.outputs.sarif-id }}"
+
+      # SCA-01 — npm audit. `--audit-level=high` gates the EXIT CODE only; it
+      # does NOT filter the report, which is the opposite of Trivy's --severity
+      # above. It is kept for exit-code consistency with the repo's pre-commit
+      # npm-audit hook, and the full-severity JSON is retained regardless —
+      # which is what Phase 17 will want.
+      # npm audit operates on a working DIRECTORY, not a named file, hence the
+      # cd per lockfile and the numbered reports: a consumer repository is not
+      # guaranteed a single manifest at its root, so Phase 17's artifact upload
+      # cannot assume a fixed filename.
+      # The list is read on fd 3 because npm reads stdin — a scanner that
+      # consumed the loop's stdin would swallow the remaining lockfile paths
+      # (measured in scripts/smoke-scans.sh, 16-03).
+      # Compound guard, deliberate: this step's `if:` had no status function of
+      # its own, so GitHub applied an implicit success() — once an earlier
+      # scan step failed hard under gate_mode: blocking, this scanner
+      # silently skipped while its always()-guarded verify step still ran
+      # and failed on a missing report, an infrastructure-shaped error for
+      # a scan that never ran. always() && restores the intended semantics:
+      # skip only on this ecosystem's own not-found signal, never on an
+      # upstream failure. This also changes report-only behaviour — these
+      # three steps previously skipped after any failed intolerant step
+      # earlier in the job; now they run regardless. The gate verdict is
+      # identical either way; what improves is report completeness and
+      # error honesty.
+      - name: SCA-01 — npm audit
+        if: always() && steps.npm.outputs.found == 'true'
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06: native --audit-level exit code kept
+        run: |
+          i=0
+          last=0
+          while IFS= read -r lock <&3; do
+            [ -n "$lock" ] || continue
+            i=$((i + 1))
+            dir="$(dirname "$lock")"
+            rc=0
+            ( cd "$dir" && npm audit --audit-level=high --json ) \
+              > "npm-audit-${i}.json" || rc=$?
+            echo "npm audit [${dir}] exit=${rc}"
+            last="$rc"
+          done 3< npm-lockfiles.txt
+          exit "$last"
+
+      # Report-content check, deliberately WITHOUT continue-on-error. `npm
+      # audit` returns the same exit 1 for "vulnerabilities found" and for the
+      # {"error":{"code":"ENOLOCK"}} object, so an unread error report would be
+      # tolerated by the step above and read as a clean scan. A missing or
+      # error-shaped report is an infrastructure failure, not a finding, and it
+      # must turn this step red. This step also prints the severity histogram
+      # Criterion 1 requires into the job log instead of only into a file.
+      - name: Verify npm audit reports
+        if: always() && steps.npm.outputs.found == 'true'
+        run: |
+          python3 - npm-audit-*.json <<'PY'
+          import json
+          import sys
+
+          for path in sys.argv[1:]:
+              with open(path) as handle:
+                  data = json.load(handle)
+              if "error" in data or "auditReportVersion" not in data:
+                  print("npm audit report is an error object, not a report: {} ({})".format(
+                      path, data.get("error")))
+                  sys.exit(1)
+              hist = (data.get("metadata") or {}).get("vulnerabilities") or {}
+              print("npm audit severity histogram [{}]: ".format(path) + " ".join(
+                  "{}={}".format(name, hist.get(name, 0))
+                  for name in ("info", "low", "moderate", "high", "critical", "total")))
+              for name, entry in sorted((data.get("vulnerabilities") or {}).items()):
+                  print("  package={} severity={}".format(name, entry.get("severity")))
+          PY
+
+      # Guarded, not just always(): in a repository without npm the glob below
+      # matches nothing, ls exits 2, and the job would go red on a clean skip.
+      - name: Show npm audit output files
+        if: always() && steps.npm.outputs.found == 'true'
+        run: ls -l npm-audit-*.json
+
+      # SCA-02 — pip-audit. The resolving default is a locked decision: the
+      # flags that skip transitive resolution or demand hash-pinned inputs are
+      # absent on purpose, because each hard-errors on any requirement a
+      # consumer repository has not pinned exactly. The cost is ~11.5 s per
+      # requirements file (measured, 16-03) — do not "optimise" it into a hard
+      # error on unpinned consumer requirements.
+      # NOTE for Phase 17/18: pip-audit's JSON carries advisory ids, aliases and
+      # fix versions but NO severity and NO CVSS field anywhere, so no severity
+      # threshold can be derived from this report. Do not infer its shape from
+      # the npm section above.
+      - name: SCA-02 — pip-audit
+        if: always() && steps.py.outputs.found == 'true'
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06
+        run: |
+          i=0
+          last=0
+          while IFS= read -r req <&3; do
+            [ -n "$req" ] || continue
+            i=$((i + 1))
+            rc=0
+            pip-audit -r "$req" --format json --progress-spinner=off \
+              -o "pip-audit-${i}.json" || rc=$?
+            echo "pip-audit [${req}] exit=${rc}"
+            last="$rc"
+          done 3< py-reqs.txt
+          exit "$last"
+
+      # Report-content check, deliberately WITHOUT continue-on-error: pip-audit
+      # also returns exit 1 both for "advisories found" and for an invalid or
+      # missing input file, and on its error paths it writes no report at all —
+      # so an absent file or one without a top-level `dependencies` key is an
+      # infrastructure failure and must turn this step red.
+      - name: Verify pip-audit reports
+        if: always() && steps.py.outputs.found == 'true'
+        run: |
+          python3 - pip-audit-*.json <<'PY'
+          import json
+          import sys
+
+          for path in sys.argv[1:]:
+              with open(path) as handle:
+                  data = json.load(handle)
+              if "dependencies" not in data:
+                  print("pip-audit report has no dependencies key: {}".format(path))
+                  sys.exit(1)
+              deps = data.get("dependencies") or []
+              entries = 0
+              ids = set()
+              for dep in deps:
+                  vulns = dep.get("vulns") or []
+                  if vulns:
+                      print("  package={} version={} advisories={}".format(
+                          dep.get("name"), dep.get("version"), len(vulns)))
+                  entries += len(vulns)
+                  ids.update(v.get("id") for v in vulns)
+              print("pip-audit resolved dependencies [{}]: {}".format(path, len(deps)))
+              print("pip-audit advisory entries [{}]: {} ({} unique ids)".format(
+                  path, entries, len(ids)))
+          PY
+
+      - name: Show pip-audit output files
+        if: always() && steps.py.outputs.found == 'true'
+        run: ls -l pip-audit-*.json
+
+      # SCA-03 — tflint. `--recursive` is MANDATORY: a repo-root tflint sees
+      # zero .tf files and exits 0, a silent false pass. tflint signals findings
+      # with exit code 2, NOT 1 — it reserves 1 for an application error — so
+      # both steps below are tolerated at the step level; the second exits 2 on
+      # a successful scan exactly as the first does, and an untolerated step
+      # would fail the job on a scan that worked. No soft-fail flag is used: the
+      # native exit code is kept (D-04).
+      # Two steps rather than one chained run: block, following the Gitleaks
+      # precedent below — tflint has no output-file flag, SARIF goes to stdout
+      # by redirection, and a second command in the same bash -e block would be
+      # dropped the moment the first exits non-zero.
+      - name: SCA-03 — tflint (SARIF)
+        if: always() && steps.tf.outputs.found == 'true'
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06: exit 2 means findings
+        run: |
+          tflint --recursive --format sarif > tflint.sarif
+
+      - name: SCA-03 — tflint (human-readable log)
+        if: always() && steps.tf.outputs.found == 'true'
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06: exit 2 means findings
+        run: |
+          tflint --recursive --format default
+
+      # Report-content check, deliberately WITHOUT continue-on-error: the SARIF
+      # is produced by shell redirection, so a tflint that died before writing
+      # anything still leaves a file behind. A SARIF without a top-level `runs`
+      # key is an infrastructure failure, not a finding.
+      - name: Verify tflint SARIF
+        if: always() && steps.tf.outputs.found == 'true'
+        run: |
+          python3 - tflint.sarif <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path) as handle:
+              data = json.load(handle)
+          if "runs" not in data:
+              print("tflint SARIF has no runs key: {}".format(path))
+              sys.exit(1)
+          found = set()
+          for run in data.get("runs") or []:
+              for result in run.get("results") or []:
+                  found.add(result.get("ruleId"))
+          print("tflint rule ids: {}".format(sorted(i for i in found if i)))
+          PY
+
+      - name: Show tflint output files
+        if: always() && steps.tf.outputs.found == 'true'
+        run: ls -l tflint.sarif
+
+      # The ecosystem guard is on BOTH this upload and its verify below, and it
+      # is the same `steps.tf.outputs.found` guard the tflint scan, log and
+      # evidence steps already carry. Unguarded, the upload of a missing
+      # tflint.sarif fails-then-tolerates and the verify then fails the whole
+      # job on a clean ecosystem skip — re-breaking the Criterion 4 skip
+      # behaviour Phase 16 spent an entire plan proving.
+      - name: Upload tflint SARIF
+        id: sarif-tflint
+        if: always() && steps.tf.outputs.found == 'true'
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        with:
+          sarif_file: tflint.sarif
+          category: tflint         # MANDATORY — distinguishes this analysis
+          # wait-for-processing is deliberately NOT set: its default of true is
+          # what turns an async ingestion rejection into a step failure that
+          # the outcome assertion below can see.
+
+      # Same contract as `Verify Semgrep SARIF upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard sits on the verify step, never on the
+      # upload — plus the ecosystem guard, for the reason given above.
+      # This one asserts the OUTCOME only and deliberately parses nothing: the
+      # `Verify tflint SARIF` step above already loads tflint.sarif and prints
+      # its rule ids, and a second parse would be a second place to maintain
+      # the same assertion.
+      # If a parse is ever added here anyway: tflint.sarif carries TWO runs
+      # (`tflint` and `tflint-errors`, the second normally empty), so no
+      # assertion anywhere may require len(runs) == 1.
+      - name: Verify tflint SARIF upload landed
+        if: always() && steps.tf.outputs.found == 'true' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.event.repository.private == false
+        run: |
+          if [ "${{ steps.sarif-tflint.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.sarif-tflint.outcome }} — the upload did not land."
+            echo "Most likely cause: security-events: write missing from the CALLER"
+            echo "(.github/workflows/pr-security.yml), which a called workflow cannot elevate."
+            exit 1
+          fi
+          # Secondary, for the log only — never the sole assertion: sarif-id is
+          # populated before wait-for-processing can reject the SARIF.
+          echo "sarif-tflint sarif-id=${{ steps.sarif-tflint.outputs.sarif-id }}"
+
+      # Same retention-format contract as `Upload SAST reports` in the sast job.
+      #
+      # GLOB, NEVER A LITERAL NAME, for the npm and pip reports. Phase 16
+      # hand-forward #1: npm audit operates on a working DIRECTORY and a
+      # consumer repo is not guaranteed a single manifest at its root, so 16-04
+      # numbers those reports per input — npm-audit-1.json, pip-audit-2.json and
+      # so on. Naming one literally would silently retain that one report and
+      # drop every other. That is why the two starred lines below exist, and
+      # this note sits here rather than on them: a `path: |` literal block
+      # scalar has no comment syntax, so a trailing `#` would be swallowed into
+      # the path string itself.
+      #
+      # overwrite, include-hidden-files and archive are left at their defaults
+      # on all five artifact steps, each for its own reason. overwrite: true
+      # would MASK a name collision rather than fix one — the five names are
+      # distinct, so the failing default is the behaviour we want.
+      # include-hidden-files: true would sweep dotfiles into an archive that is
+      # world-downloadable on this PUBLIC repo. archive: false ignores `name`
+      # entirely and fails on a multi-file glob.
+      - name: Upload SCA reports
+        id: artifact-sca
+        if: always()                     # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: sca-results              # unique across the five parallel jobs
+          path: |
+            trivy-fs.json
+            trivy-fs.sarif
+            npm-audit-*.json
+            pip-audit-*.json
+            tflint.sarif
+          # warn, and this is the ONLY job where warn is correct. The npm, pip
+          # and tflint entries are ecosystem-conditional: in a consumer repo
+          # with no package-lock.json the npm glob matches nothing, and `error`
+          # there would turn a clean, correct skip red — re-breaking the
+          # Criterion 4 skip behaviour Phase 16 spent a plan proving.
+          # trivy-fs.json is unconditional, so this artifact is never empty.
+          if-no-files-found: warn
+          # Explicit — Criterion 3 requires a stated period, and 90 is the
+          # maximum without a repository-settings change. See the sast job.
+          retention-days: 90
+
+      # Same contract as `Verify SAST artifact upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard is applied for uniformity with the SARIF
+      # verify steps rather than because upload-artifact was measured to fail
+      # on those runs — see that step for the full note.
+      - name: Verify SCA artifact upload landed
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+        run: |
+          if [ "${{ steps.artifact-sca.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.artifact-sca.outcome }} — the artifact did not land."
+            echo "CICD-03 retains nothing for this job; a future DefectDojo import has no input."
+            exit 1
+          fi
+          # For the log, so 17-05's live verification has a run-local record to
+          # cross-check against the gh api artifact listing for this run.
+          echo "artifact-sca artifact-id=${{ steps.artifact-sca.outputs.artifact-id }}"
+          echo "artifact-sca artifact-url=${{ steps.artifact-sca.outputs.artifact-url }}"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Container — Trivy Image
+  # Builds the fixture image and scans it for OS package and language
+  # dependency vulnerabilities. Runs unconditionally (D-06).
+  # ─────────────────────────────────────────────────────────────────────────
+  container:
+    name: Container — Trivy Image
+    runs-on: ubuntu-latest
+    steps:
+      # This is the enum control: GitHub does not validate a `type: string`
+      # value against a list, so without this step "string enum" is a
+      # convention, not a constraint. The empty string is rejected on
+      # purpose — it is the shape an omitted-and-unresolved input produces,
+      # and a blank mode must fail loudly rather than resolve to anything.
+      # Deliberately placed before checkout: an invalid value fails the job
+      # before any scan runs, and the job's trailing `if: always()` upload
+      # and "Show scan output files" steps will then also fail on missing
+      # files. The job is red either way; the first failure in the log is
+      # the legible one, and fail-before-scan is the intended behaviour.
+      - name: Validate gate_mode
+        run: |
+          case "${GATE_MODE}" in
+            blocking|report-only) echo "gate_mode=${GATE_MODE}" ;;
+            *) echo "invalid gate_mode: '${GATE_MODE}' (expected blocking|report-only)"; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
+        with:
+          version: v0.74.0
+          cache: true
+
+      # Phase 15 D-06's "unconditional build" was correct for security-platform,
+      # whose fixtures/Dockerfile always exists. A consumer repository adopting
+      # this file may have no Dockerfile at all — an unconditional
+      # `docker build -f fixtures/Dockerfile` would fail there 100% of the
+      # time. The detect step below, plus the guard compounded onto every
+      # subsequent step in this job, are what make a Dockerfile-free
+      # repository skip cleanly instead.
+      # The only context interpolations in any run: block in this workflow are
+      # ${{ github.sha }}, ${{ steps.docker.outputs.path }} (read from
+      # `git ls-files` on the checked-out tree, not an event payload), and
+      # GitHub-generated step outcomes and ids (the steps.<id>.outcome,
+      # .outputs.sarif-id and .outputs.artifact-id/-url values read by the
+      # upload verify steps). None is attacker-controlled: outcome is one of
+      # four literal GitHub strings and the ids are server-generated. 17-03
+      # added the first of those and left this comment saying "only" — true
+      # when it was written, stale from that plan onward.
+      #
+      # Pathspec: the corrected five-item form measured in 20-02 (A4) —
+      # 'Dockerfile' '*/Dockerfile' 'Dockerfile.*' '*/Dockerfile.*'
+      # '*.dockerfile' — NOT the naive three-item form ('*Dockerfile'
+      # '*Dockerfile.*' '*.dockerfile'), which was measured to also match a
+      # docs/ decoy file because git's default pathspec wildcards cross '/'.
+      # The one legitimate `|| true` here is on the discovery pipeline only,
+      # never on a branch that decides found=. A multi-Dockerfile repository
+      # scans the first one only (`head -1`, alphabetical git ls-files order).
+      - name: Detect Dockerfile
+        id: docker
+        run: |
+          git ls-files -- 'Dockerfile' '*/Dockerfile' 'Dockerfile.*' '*/Dockerfile.*' '*.dockerfile' > dockerfiles.txt || true
+          count=$(grep -c . dockerfiles.txt || true)
+          if [ "${count:-0}" -eq 0 ]; then
+            echo "SKIP: no Dockerfile found — container sub-scan not applicable to this repository"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          first=$(head -1 dockerfiles.txt)
+          echo "FOUND ${count} Dockerfile(s); building the first: ${first}"
+          { echo "found=true"; echo "path=${first}"; } >> "$GITHUB_OUTPUT"
+
+      - name: Build image from discovered Dockerfile
+        if: steps.docker.outputs.found == 'true'
+        run: |
+          ctx=$(dirname "${{ steps.docker.outputs.path }}")
+          docker build -f "${{ steps.docker.outputs.path }}" \
+            -t scan-target:${{ github.sha }} "$ctx"
+
+      - name: Run Trivy image scan
+        if: steps.docker.outputs.found == 'true'
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06
+        run: |
+          trivy image scan-target:${{ github.sha }} --scanners vuln \
+            --format json --output trivy-image.json \
+            --exit-code 1 --severity HIGH,CRITICAL
+
+      # `always()` alone would run this (and every step below) after a
+      # SKIPPED build: `trivy image` would have no image, `ls -l` would fail
+      # on missing files, and the artifact upload's error-on-missing-file
+      # setting below would turn a clean skip red — the exact failure 18-02
+      # fixed for the three SCA sub-scans. Compounding
+      # steps.docker.outputs.found == 'true' restores the intended semantics.
+      - name: Convert to SARIF
+        if: always() && steps.docker.outputs.found == 'true'
+        run: trivy convert --format sarif --output trivy-image.sarif trivy-image.json
+
+      - name: Show scan output files
+        if: always() && steps.docker.outputs.found == 'true'
+        run: ls -l trivy-image.json trivy-image.sarif
+
+      - name: Upload Trivy image SARIF
+        id: sarif-trivy-image
+        if: always() && steps.docker.outputs.found == 'true'  # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image     # MANDATORY — distinguishes this analysis
+          # Not optional: trivy-fs.sarif in the sca job carries the identical
+          # tool.driver.name of `Trivy`, and GitHub fails the second upload of
+          # the same tool + category in one run.
+          # wait-for-processing is deliberately NOT set: its default of true is
+          # what turns an async ingestion rejection into a step failure that
+          # the outcome assertion below can see.
+
+      # Same contract as `Verify Semgrep SARIF upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard sits on the verify step, never on the
+      # upload. The Dockerfile guard is compounded in front of both.
+      - name: Verify Trivy image SARIF upload landed
+        if: always() && steps.docker.outputs.found == 'true' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.event.repository.private == false
+        run: |
+          python3 - trivy-image.sarif <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path) as handle:
+              data = json.load(handle)
+          if "runs" not in data:
+              print("SARIF has no runs key: {}".format(path))
+              sys.exit(1)
+          runs = data.get("runs") or []
+          print("{}: {} run(s)".format(path, len(runs)))
+          for run in runs:
+              driver = (run.get("tool") or {}).get("driver") or {}
+              print("  tool.driver.name={} results={}".format(
+                  driver.get("name"), len(run.get("results") or [])))
+          PY
+          if [ "${{ steps.sarif-trivy-image.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.sarif-trivy-image.outcome }} — the upload did not land."
+            echo "Most likely cause: security-events: write missing from the CALLER"
+            echo "(.github/workflows/pr-security.yml), which a called workflow cannot elevate."
+            exit 1
+          fi
+          # Secondary, for the log only — never the sole assertion: sarif-id is
+          # populated before wait-for-processing can reject the SARIF.
+          echo "sarif-trivy-image sarif-id=${{ steps.sarif-trivy-image.outputs.sarif-id }}"
+
+      # Same retention-format contract as `Upload SAST reports` in the sast job.
+      - name: Upload container reports
+        id: artifact-container
+        if: always() && steps.docker.outputs.found == 'true'  # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: trivy-image-results      # unique across the five parallel jobs
+          path: |
+            trivy-image.json
+            trivy-image.sarif
+          # error, not warn: the scan writes the JSON and the conversion step
+          # writes the SARIF, both unconditionally when the Dockerfile guard
+          # is satisfied, so a missing one there is real. The guard — not a
+          # downgrade to warn — is what makes a Dockerfile-free skip clean.
+          if-no-files-found: error
+          # Explicit — Criterion 3 requires a stated period, and 90 is the
+          # maximum without a repository-settings change. See the sast job.
+          retention-days: 90
+
+      # Same contract as `Verify SAST artifact upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard is applied for uniformity with the SARIF
+      # verify steps rather than because upload-artifact was measured to fail
+      # on those runs — see that step for the full note. The Dockerfile guard
+      # is compounded in front of both.
+      - name: Verify container artifact upload landed
+        if: always() && steps.docker.outputs.found == 'true' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+        run: |
+          if [ "${{ steps.artifact-container.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.artifact-container.outcome }} — the artifact did not land."
+            echo "CICD-03 retains nothing for this job; a future DefectDojo import has no input."
+            exit 1
+          fi
+          # For the log, so 17-05's live verification has a run-local record to
+          # cross-check against the gh api artifact listing for this run.
+          echo "artifact-container artifact-id=${{ steps.artifact-container.outputs.artifact-id }}"
+          echo "artifact-container artifact-url=${{ steps.artifact-container.outputs.artifact-url }}"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Secrets — Gitleaks
+  # Scans full git history for hardcoded secrets and credentials.
+  # ─────────────────────────────────────────────────────────────────────────
+  secrets:
+    name: Secrets — Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      # This is the enum control: GitHub does not validate a `type: string`
+      # value against a list, so without this step "string enum" is a
+      # convention, not a constraint. The empty string is rejected on
+      # purpose — it is the shape an omitted-and-unresolved input produces,
+      # and a blank mode must fail loudly rather than resolve to anything.
+      # Deliberately placed before checkout: an invalid value fails the job
+      # before any scan runs, and the job's trailing `if: always()` upload
+      # and "Show scan output files" steps will then also fail on missing
+      # files. The job is red either way; the first failure in the log is
+      # the legible one, and fail-before-scan is the intended behaviour.
+      - name: Validate gate_mode
+        run: |
+          case "${GATE_MODE}" in
+            blocking|report-only) echo "gate_mode=${GATE_MODE}" ;;
+            *) echo "invalid gate_mode: '${GATE_MODE}' (expected blocking|report-only)"; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0   # REQUIRED: `gitleaks git` finds findings in history;
+                           # the working-tree-only dir subcommand of gitleaks finds zero.
+
+      # Download-then-verify-then-extract, never curl | sh — the SAST job's own
+      # p/default ruleset (gha-curl-pipe-shell) flags the pipe pattern.
+      - name: Install Gitleaks
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" \
+            | sha256sum -c -
+          sudo tar xzf gitleaks.tar.gz -C /usr/local/bin gitleaks
+
+      # `git`, never the deprecated `detect` subcommand and never `dir`.
+      # No dual-output flag exists, so this is TWO steps rather than one chained
+      # run: block — GitHub's default shell is bash -e, every scanner here is
+      # *expected* to exit 1 under D-04, and a two-command run: would silently
+      # drop the second command once the first exits non-zero.
+      - name: Run Gitleaks (SARIF)
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06
+        run: |
+          gitleaks git . --no-banner --redact \
+            --report-format sarif --report-path gitleaks.sarif
+
+      - name: Run Gitleaks (JSON)
+        if: always()                     # previous step exits 1 on findings
+        continue-on-error: ${{ env.GATE_MODE == 'report-only' }}  # D-04 / Phase 18 CICD-06
+        run: |
+          gitleaks git . --no-banner --redact \
+            --report-format json --report-path gitleaks-results.json
+
+      - name: Show scan output files
+        if: always()
+        run: ls -l gitleaks-results.json gitleaks.sarif
+
+      - name: Upload Gitleaks SARIF
+        id: sarif-gitleaks
+        if: always()                     # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks        # MANDATORY — distinguishes this analysis
+          # wait-for-processing is deliberately NOT set: its default of true is
+          # what turns an async ingestion rejection into a step failure that
+          # the outcome assertion below can see.
+
+      # Same contract as `Verify Semgrep SARIF upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard sits on the verify step, never on the
+      # upload.
+      - name: Verify Gitleaks SARIF upload landed
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.event.repository.private == false
+        run: |
+          python3 - gitleaks.sarif <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path) as handle:
+              data = json.load(handle)
+          if "runs" not in data:
+              print("SARIF has no runs key: {}".format(path))
+              sys.exit(1)
+          runs = data.get("runs") or []
+          print("{}: {} run(s)".format(path, len(runs)))
+          for run in runs:
+              driver = (run.get("tool") or {}).get("driver") or {}
+              print("  tool.driver.name={} results={}".format(
+                  driver.get("name"), len(run.get("results") or [])))
+          PY
+          if [ "${{ steps.sarif-gitleaks.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.sarif-gitleaks.outcome }} — the upload did not land."
+            echo "Most likely cause: security-events: write missing from the CALLER"
+            echo "(.github/workflows/pr-security.yml), which a called workflow cannot elevate."
+            exit 1
+          fi
+          # Secondary, for the log only — never the sole assertion: sarif-id is
+          # populated before wait-for-processing can reject the SARIF.
+          echo "sarif-gitleaks sarif-id=${{ steps.sarif-gitleaks.outputs.sarif-id }}"
+
+      # Same retention-format contract as `Upload SAST reports` in the sast job.
+      - name: Upload secrets reports
+        id: artifact-secrets
+        if: always()                     # scanners exit non-zero by design (D-04)
+        continue-on-error: true          # ADR-001: upload failures must not block
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: gitleaks-results         # unique across the five parallel jobs
+          path: |
+            gitleaks-results.json
+            gitleaks.sarif
+          # error, not warn: the two Gitleaks runs above each write one of these
+          # files unconditionally, so a missing one is a real failure.
+          if-no-files-found: error
+          # Explicit — Criterion 3 requires a stated period, and 90 is the
+          # maximum without a repository-settings change. See the sast job.
+          retention-days: 90
+
+      # Same contract as `Verify SAST artifact upload landed` in the sast job:
+      # no continue-on-error (ADR-001 governs the upload, not the assertion),
+      # and the fork/Dependabot guard is applied for uniformity with the SARIF
+      # verify steps rather than because upload-artifact was measured to fail
+      # on those runs — see that step for the full note.
+      - name: Verify secrets artifact upload landed
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+        run: |
+          if [ "${{ steps.artifact-secrets.outcome }}" != "success" ]; then
+            echo "upload outcome=${{ steps.artifact-secrets.outcome }} — the artifact did not land."
+            echo "CICD-03 retains nothing for this job; a future DefectDojo import has no input."
+            exit 1
+          fi
+          # For the log, so 17-05's live verification has a run-local record to
+          # cross-check against the gh api artifact listing for this run.
+          echo "artifact-secrets artifact-id=${{ steps.artifact-secrets.outputs.artifact-id }}"
+          echo "artifact-secrets artifact-url=${{ steps.artifact-secrets.outputs.artifact-url }}"

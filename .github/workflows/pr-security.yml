@@ -1,0 +1,81 @@
+---
+# Repo-local trigger policy: invokes the callable security workflow on every
+# pull request, all branches. The relative reference takes no @ref and resolves
+# to the caller's own commit, so a PR exercises its own workflow changes.
+#
+# ADOPTION: this file is the Mode A/B caller. It has exactly ONE per-repo
+# substitution point, `gate_mode`, set with
+# `gh variable set GATE_MODE --body blocking -R OWNER/REPO` — never by
+# editing this YAML; `report-only` is the default and needs no action.
+# `name: security` on the job below must never be renamed: it is the job ID
+# and therefore the prefix of all five branch-protection required-context
+# names. Mode A (this repo carries its own copy of security.yml alongside
+# this file) keeps the `uses:` line below as
+# `uses: ./.github/workflows/security.yml`, unchanged. Mode B (no local
+# copy) replaces that single line with
+# `uses: OttawaCloudConsulting/security-platform/.github/workflows/security.yml@v1`
+# and copies nothing else. No owner-name, repo-name, or branch-name
+# placeholder token exists anywhere in this file: `github.repository` is
+# resolved by the runner at trigger time, and the trigger below is
+# `pull_request: {}` — all branches.
+
+name: PR Security
+
+on:
+  pull_request: {}
+
+# Workflow-level FLOOR. Deliberately left at contents: read — it is what any
+# job added to this file later inherits by default. The security-events grant
+# is job-scoped below (least privilege, ASVS V4).
+permissions:
+  contents: read
+
+jobs:
+  security:
+    # FROZEN. `security` is this job's ID, and therefore the PREFIX of every
+    # check-run name the called workflow's jobs emit: `security / <called job
+    # name>`. This caller job itself emits NO check run of its own — verified
+    # twice: Phase 14-02 saw exactly one check (`security / Placeholder`) for
+    # a one-job callee, no bare `security`; Phase 18's research read of the
+    # Phase 17 head SHA returned 12 check names, again none a bare `security`.
+    # Renaming this job therefore renames all five required contexts at once,
+    # and a required context with no matching check run sits permanently
+    # pending rather than failing — which is why it is frozen.
+    name: security
+    # A job-level permissions block REPLACES the workflow-level set for this
+    # job, so contents: read must be restated here or actions/checkout inside
+    # the called workflow loses its read scope.
+    permissions:
+      contents: read
+      # THE GRANT. Required for SARIF upload to the GitHub Security tab. The
+      # caller's permission set is the CEILING for a called workflow: the
+      # callee can only downgrade it, never elevate. Omitting it here 403s
+      # every upload, and ADR-001's mandatory continue-on-error leaves no red
+      # step anywhere in the run to notice.
+      security-events: write
+      # Required only for private repositories. Read-only, grants nothing this
+      # workflow does not already have on a public repo, and carried for
+      # Phase 20 consumer-template portability.
+      actions: read
+    uses: ./.github/workflows/security.yml
+    # No `with:` block, deliberately — omission is the mechanism, not an
+    # oversight. With gate_mode omitted, inputs.gate_mode resolves to "",
+    # so the callee's env.GATE_MODE chain falls through to this CALLER
+    # repo's `GATE_MODE` variable and then to 'report-only' (D-03). That
+    # means the mode is switched with `gh variable set GATE_MODE --body
+    # blocking`, never a YAML edit — exactly what Success Criterion 3 asks
+    # for.
+    #
+    # Two traps to avoid if a `with:` block is ever added here:
+    #   - A bare passthrough `gate_mode: ${{ vars.GATE_MODE }}` is FORBIDDEN:
+    #     an unset variable resolves to "", which counts as a PROVIDED input
+    #     and suppresses the callee's own default. Any literal added here
+    #     must carry its own `|| 'report-only'` fallback.
+    #   - A public repo that genuinely intends to run blocking on fork PRs
+    #     may need a literal `with: gate_mode: blocking` instead of the vars
+    #     path: whether a fork PR's job can even read repository `vars` at
+    #     all remains UNVERIFIED by this project. Phase 19 deliberately did
+    #     not test it (19-07); the claim that a fork PR cannot read
+    #     repository variables rests on a single GitHub staff forum answer
+    #     from January 2023, unresolved and absent from GitHub's own
+    #     documentation.
