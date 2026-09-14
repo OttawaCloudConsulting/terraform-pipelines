@@ -1,0 +1,19 @@
+---
+# Dependabot version updates (CICD-05).
+# Keeps the SHA-pinned GitHub Actions in .github/workflows/ current.
+# A LOCAL relative reference — `uses: ./.github/workflows/security.yml` — is
+# never proposed for update, by design: Dependabot does not resolve relative
+# workflow paths. An EXTERNAL reusable-workflow reference such as
+# `uses: OWNER/REPO/.github/workflows/security.yml@v1` (Mode B) IS supported
+# and IS updated (GitHub changelog, 2023-03-13), so a Mode B consumer's pin
+# is not frozen and Dependabot keeps watching it. `directory: "/"` below is
+# required for `.github/workflows` discovery and must not be "corrected" to
+# `/.github/workflows`.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
