@@ -1,0 +1,40 @@
+---
+name: PR Security
+
+on:
+  pull_request: {}
+
+## Workflow-level FLOOR. Any job added later inherits this by default.
+permissions:
+  contents: read
+
+jobs:
+  security:
+    # FROZEN. `security` is this job's ID, and therefore the PREFIX of every
+    # check-run name the called workflow's jobs emit, formed as
+    # `<this job's id> / <called job name>`. This caller job itself emits NO
+    # check run of its own. Renaming this job therefore renames every
+    # branch-protection required context at once, and a required context
+    # with no matching check run sits permanently pending rather than
+    # failing outright — which is why it is frozen.
+    name: security
+    # A job-level permissions block REPLACES the workflow-level set for this
+    # job, so contents: read must be restated here or checkout inside the
+    # called workflow loses its read scope. This block is also the CEILING
+    # for the called workflow — it can only reduce what is granted here,
+    # never elevate. Omitting security-events: write 403s every SARIF
+    # upload while the run still reports green.
+    permissions:
+      contents: read
+      security-events: write
+      actions: read          # required only for private repositories
+    uses: OttawaCloudConsulting/security-platform/.github/workflows/security.yml@v1
+    # No `with:` block, deliberately. Two traps to avoid if one is ever added:
+    #   - A bare passthrough, `with: { gate_mode: ${{ vars.GATE_MODE }} }`, is
+    #     FORBIDDEN: an unset variable resolves to the empty string, which
+    #     counts as a PROVIDED input and suppresses the callee's own
+    #     "report-only" default. This is a prohibition, not an example to copy.
+    #   - A public repository that genuinely needs to block on fork pull
+    #     requests may need a literal `with: { gate_mode: blocking }` instead
+    #     of the variable path, because whether a fork PR's job can even read
+    #     repository variables at all is UNVERIFIED by this project.
