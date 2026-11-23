@@ -294,6 +294,10 @@ Automation Account (pipeline host)
 
 The override file is generated via `cat <<'EOF'` + `envsubst` to expand `${TARGET_ROLE}` and `${TARGET_ENV}`, then cleaned up in `post_build`. No STS assume-role calls or exported credentials in buildspecs.
 
+**Backend requirement for the deployed project:** Plan, Deploy and Destroy run `terraform init -backend-config=/tmp/backend.hcl`, which supplies `bucket`, `key` (`<state_key_prefix>/<env>/terraform.tfstate`), `region` and `use_lockfile = true`. Partial backend configuration only applies when the project declares `terraform { backend "s3" {} }`. A project without that block silently uses local state inside the CodeBuild container, and the state is lost when the build ends.
+
+**Pre-Build scope:** the Pre-Build action has no output artifact, and later stages take `source_output` directly. Anything `cicd/prebuild/main.sh` installs or writes is discarded when the build ends, so the script can only gate the pipeline (exit non-zero to fail it).
+
 Plan and Deploy actions for the same environment use the same cross-account deployment role via the override file. Plan needs read access for accurate diffs; Deploy needs write access for apply.
 
 **Credential strategy by buildspec:**

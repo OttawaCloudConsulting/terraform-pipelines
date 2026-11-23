@@ -102,6 +102,15 @@ See `examples/` for runnable configurations.
 2. **AWS provider ~> 6.0**
 3. **Deployment roles** must pre-exist in DEV and PROD target accounts — they must trust the CodeBuild service role from the Automation Account
 4. **CodeStar Connection** requires one-time manual OAuth authorization in AWS Console after creation
+5. **Empty S3 backend block** in the deployed Terraform project. The pipeline passes the bucket, key, region and locking settings through `terraform init -backend-config`, which only takes effect when the project declares a backend:
+
+   ```hcl
+   terraform {
+     backend "s3" {}
+   }
+   ```
+
+   Without it, Terraform keeps local state inside the CodeBuild container and the state is lost after every build.
 
 ## Variables
 
