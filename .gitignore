@@ -42,5 +42,30 @@ tfplan.json
 .terraformrc
 terraform.rc
 
-# Claude Code local settings
-.claude/settings.local.json
+# AI agent directories (Claude Code, Codex, Antigravity/Gemini)
+# Only the shared investigate skill is tracked: its canonical copy lives in
+# .agents/skills/ (Codex, Antigravity) and .claude/skills/investigate is a
+# symlink to it. Other local skills in these directories stay ignored.
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/investigate
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/investigate/
+.codex/
+.gemini/
+.agent/
+
+# Investigation records and evidence written by the investigate skill
+/agents/
+
+# MCP server configuration files (per-developer, may hold credentials)
+.mcp.json
+**/mcp.json
+**/mcp_config.json
+
+# Agent instruction files (kept local)
+/AGENTS.md
+/CLAUDE.md
