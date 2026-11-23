@@ -69,3 +69,6 @@ terraform.rc
 # Agent instruction files (kept local)
 /AGENTS.md
 /CLAUDE.md
+
+# Scratch notes and working documents (local only)
+/temp/
