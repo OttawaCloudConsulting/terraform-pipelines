@@ -150,6 +150,29 @@ See `examples/` for runnable configurations.
 | `artifact_retention_days` | `number` | `30` | Artifact lifecycle (1-365). |
 | `tags` | `map(string)` | `{}` | Additional tags. |
 
+### Trigger File Path Filters (Optional, All Variants)
+
+By default the pipeline starts on every push to `github_branch`. Set either list to start it only when matching files change, so docs-only commits, for example, don't deploy. Leave both empty (the default) to keep that behavior; no trigger block is rendered and existing pipelines plan unchanged.
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `trigger_file_path_includes` | `list(string)` | `[]` | Glob patterns; a push starts the pipeline only if a changed file matches one. Max 8. |
+| `trigger_file_path_excludes` | `list(string)` | `[]` | Glob patterns; matching files never start the pipeline, even if they also match an include. Max 8. When set alone, includes default to `["**"]`. |
+
+```hcl
+  trigger_file_path_includes = ["src/**", "environments/**", "cicd/**", "*.tf", ".terraform.lock.hcl"]
+  trigger_file_path_excludes = ["docs/**"]
+```
+
+How the patterns match ([CodePipeline glob syntax](https://docs.aws.amazon.com/codepipeline/latest/userguide/syntax-glob.html)):
+
+- Paths are relative to the repo root, not to `iac_working_directory`.
+- `*` stays within one directory, so `*.tf` matches `main.tf` but not `modules/x/main.tf`.
+- `**` crosses directories, so `src/**` matches everything under `src/` at any depth.
+- Excludes win over includes. Each changed file is checked on its own, and the pipeline starts if any one file passes.
+
+Setting a filter adds an explicit V2 push trigger on the `GitHub` source action, filtered to `github_branch`. This replaces default change detection for that action. With a configs repo, a second branch-only trigger keeps any push to `configs_repo_branch` starting the pipeline; the file path filters apply to the IaC repo only. A pipeline started manually, or by "Release change", ignores the filters.
+
 ### Variant-Specific (Default-DevDestroy)
 
 | Name | Type | Default | Description |

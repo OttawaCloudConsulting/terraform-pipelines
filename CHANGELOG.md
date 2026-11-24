@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+Optional CodePipeline trigger file path filters for both variants. New variables `trigger_file_path_includes` and `trigger_file_path_excludes` (`list(string)`, default `[]`, max 8 patterns each). When either is set, the pipeline gets a V2 push trigger on the `GitHub` source action filtered to `github_branch` and the given glob patterns; with a configs repo, a branch-only trigger keeps the configs repo triggering on any push. With both empty, no trigger block is rendered and existing pipelines plan unchanged. Added plan-only `terraform test` suites (`modules/<variant>/tests/`) with a mocked AWS provider.
+
 ## [Multi-Variant Restructure] — 2026-02-13
 
 Major restructure from monolithic root module to multi-variant architecture.
