@@ -4,7 +4,7 @@
 
 ## [v1.1.0] — 2026-11-23
 
-Consumers on `v1.0.0` can move to `v1.1.0` without changing any variables. Expect an in-place update to the `plan-dev` and `plan-prod` CodeBuild projects, because `plan.yml` changed; the new features stay off until their variables are set.
+Consumers on `v1.0.0` can move to `v1.1.0` without changing any variables. Expect an in-place update to the `plan-dev` and `plan-prod` CodeBuild projects, because `plan.yml` changed; that change also turns on Checkov coverage reports, because `enable_security_scan` defaults to `true`. Configs repo support and trigger file path filters stay off until their variables are set.
 
 **Trigger file path filters** (#16, #17). Optional CodePipeline trigger file path filters for both variants. New variables `trigger_file_path_includes` and `trigger_file_path_excludes` (`list(string)`, default `[]`, max 8 patterns each). When either is set, the pipeline gets a V2 push trigger on the `GitHub` source action filtered to `github_branch` and the given glob patterns; with a configs repo, a branch-only trigger keeps the configs repo triggering on any push. With both empty, no trigger block is rendered and existing pipelines plan unchanged. Added plan-only `terraform test` suites (`modules/<variant>/tests/`) with a mocked AWS provider.
 
@@ -12,7 +12,7 @@ Consumers on `v1.0.0` can move to `v1.1.0` without changing any variables. Expec
 
 **Checkov coverage reports** (#10, #11). When `enable_security_scan = true`, each Plan build converts Checkov results to Cobertura XML and uploads them as a CodeBuild code coverage report (`<project>-plan-<env>-checkov-security`). Hard-fail and soft-fail behaviour is unchanged. No new variables or Terraform resources.
 
-**Docs.** The README now states that the deployed project must declare `backend "s3" {}`, and that Pre-Build has no output artifact, so it can only gate the pipeline.
+**Docs.** The README now states that the deployed project must declare `backend "s3" {}`. `docs/ARCHITECTURE_AND_DESIGN.md` and `examples/cicd/prebuild/main.sh` now explain that Pre-Build has no output artifact, so it can only gate the pipeline.
 
 ## [Multi-Variant Restructure] — 2026-02-13
 
