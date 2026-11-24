@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
-Optional CodePipeline trigger file path filters for both variants. New variables `trigger_file_path_includes` and `trigger_file_path_excludes` (`list(string)`, default `[]`, max 8 patterns each). When either is set, the pipeline gets a V2 push trigger on the `GitHub` source action filtered to `github_branch` and the given glob patterns; with a configs repo, a branch-only trigger keeps the configs repo triggering on any push. With both empty, no trigger block is rendered and existing pipelines plan unchanged. Added plan-only `terraform test` suites (`modules/<variant>/tests/`) with a mocked AWS provider.
+## [v1.1.0] — 2026-11-23
+
+Consumers on `v1.0.0` can move to `v1.1.0` without changing any variables. Expect an in-place update to the `plan-dev` and `plan-prod` CodeBuild projects, because `plan.yml` changed; the new features stay off until their variables are set.
+
+**Trigger file path filters** (#16, #17). Optional CodePipeline trigger file path filters for both variants. New variables `trigger_file_path_includes` and `trigger_file_path_excludes` (`list(string)`, default `[]`, max 8 patterns each). When either is set, the pipeline gets a V2 push trigger on the `GitHub` source action filtered to `github_branch` and the given glob patterns; with a configs repo, a branch-only trigger keeps the configs repo triggering on any push. With both empty, no trigger block is rendered and existing pipelines plan unchanged. Added plan-only `terraform test` suites (`modules/<variant>/tests/`) with a mocked AWS provider.
+
+**Configs repo support** (#8, #9). Optional separate GitHub repository for `.tfvars` files. New variables `configs_repo`, `configs_repo_branch`, `configs_repo_path` and `configs_repo_codestar_connection_arn` (all variants). When `configs_repo` is set, the pipeline gets a second source action, plan actions read tfvars only from the configs repo, and a push to either repository starts the pipeline. See `docs/configs-repo/README.md`.
+
+**Checkov coverage reports** (#10, #11). When `enable_security_scan = true`, each Plan build converts Checkov results to Cobertura XML and uploads them as a CodeBuild code coverage report (`<project>-plan-<env>-checkov-security`). Hard-fail and soft-fail behaviour is unchanged. No new variables or Terraform resources.
+
+**Docs.** The README now states that the deployed project must declare `backend "s3" {}`, and that Pre-Build has no output artifact, so it can only gate the pipeline.
 
 ## [Multi-Variant Restructure] — 2026-02-13
 
