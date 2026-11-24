@@ -79,6 +79,10 @@ These resources are registered with core IAM policies via `additional_codebuild_
 - Cost optimization — avoid leaving DEV infrastructure running between deployments
 - Testing infrastructure-as-code destroy paths as part of the CI/CD lifecycle
 
+## Trigger File Path Filters
+
+Optional. Set `trigger_file_path_includes` and/or `trigger_file_path_excludes` (glob patterns, max 8 each) to start the pipeline only when matching files change on `github_branch`. Leave both empty to keep the default of starting on every push. See the [main README](../../README.md#trigger-file-path-filters-optional-all-variants) for pattern rules.
+
 ## Configs Repo Support
 
 This variant supports an optional second source repository for `.tfvars` files. When `configs_repo` is set, plan **and destroy** actions source tfvars from the configs repo. The Destroy DEV action receives the configs artifact as a secondary input.

@@ -196,6 +196,8 @@ With configs repo enabled, the pipeline has two independent triggers:
 | IaC repo (`github_repo` branch) | ✓ Triggers |
 | Configs repo (`configs_repo_branch`) | ✓ Triggers |
 
+When `trigger_file_path_includes` or `trigger_file_path_excludes` is set, the IaC repo trigger is filtered by file path, and the module adds a branch-only trigger for the configs repo so any push to `configs_repo_branch` still starts the pipeline. The file path filters never apply to the configs repo.
+
 The pipeline uses `SUPERSEDED` execution mode. If a new push arrives while an execution is in progress, the in-progress execution is cancelled and a new one starts with the latest source from both repos.
 
 **Best practice for coordinated changes:** Merge IaC changes first and verify the pipeline passes, then merge config changes. This avoids running a plan that mixes an unreleased IaC version with updated config values.

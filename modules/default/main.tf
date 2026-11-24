@@ -45,6 +45,13 @@ module "core" {
 # CodePipeline V2 — 6-Stage Pipeline
 # -----------------------------------------------------------------------------
 
+locals {
+  # File path filters need an explicit V2 trigger, which replaces default
+  # change detection. With no filters, no trigger block is rendered and the
+  # pipeline keeps its previous behavior.
+  trigger_file_path_filters_enabled = length(var.trigger_file_path_includes) > 0 || length(var.trigger_file_path_excludes) > 0
+}
+
 resource "aws_codepipeline" "this" {
   #checkov:skip=CKV_AWS_219:Post-MVP — CMK encryption for CodePipeline artifact store (design decision #4)
   name          = "${var.project_name}-pipeline"
@@ -270,6 +277,50 @@ resource "aws_codepipeline" "this" {
 
       configuration = {
         ProjectName = module.core.codebuild_project_names["test-prod"]
+      }
+    }
+  }
+
+  # Optional push trigger with file path filters on the IaC repo source action.
+  dynamic "trigger" {
+    for_each = local.trigger_file_path_filters_enabled ? [1] : []
+
+    content {
+      provider_type = "CodeStarSourceConnection"
+
+      git_configuration {
+        source_action_name = "GitHub"
+
+        push {
+          branches {
+            includes = [var.github_branch]
+          }
+
+          file_paths {
+            includes = length(var.trigger_file_path_includes) > 0 ? var.trigger_file_path_includes : ["**"]
+            excludes = length(var.trigger_file_path_excludes) > 0 ? var.trigger_file_path_excludes : null
+          }
+        }
+      }
+    }
+  }
+
+  # When filters are on, keep the configs repo triggering on any push to its
+  # branch, so the configs repo behaves the same with or without filters.
+  dynamic "trigger" {
+    for_each = local.trigger_file_path_filters_enabled && var.configs_repo != "" ? [1] : []
+
+    content {
+      provider_type = "CodeStarSourceConnection"
+
+      git_configuration {
+        source_action_name = "GitHub-Configs"
+
+        push {
+          branches {
+            includes = [var.configs_repo_branch]
+          }
+        }
       }
     }
   }

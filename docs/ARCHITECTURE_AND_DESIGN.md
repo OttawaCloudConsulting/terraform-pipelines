@@ -169,6 +169,14 @@ variant-specific)"]
 
 Variant wrappers (`modules/default/variables.tf`, `modules/default-dev-destroy/variables.tf`) are **identical copies** of `modules/core/variables.tf` — they are not thin pass-throughs. Every variable accepted by core is re-declared in the variant, and the variant passes all values through to the core module call. This means consumers see the same interface (30 or 31 variables) regardless of which variant they use. Maintainers adding variables to core must update all variant wrappers as well.
 
+The exception is `trigger_file_path_includes` and `trigger_file_path_excludes`. They shape the `aws_codepipeline` trigger, which each variant owns, so they are declared in both variants but not in core.
+
+### Pipeline Trigger
+
+With no file path filters, the pipeline declares no `trigger` block and relies on `DetectChanges = "true"` on each CodeStar source action. That starts it on any push to `github_branch` (and to `configs_repo_branch` when a configs repo is set).
+
+When either filter list is non-empty, each variant renders a V2 `trigger` on the `GitHub` source action: `push` with `branches.includes = [github_branch]` and the `file_paths` lists. An explicit trigger disables default change detection for that action, so the branch filter is required. An excludes-only setting sends `includes = ["**"]`, and an empty list is sent as `null`, because the API rejects empty lists. With a configs repo, a second trigger on `GitHub-Configs` filters on `configs_repo_branch` only, which keeps the configs repo starting the pipeline on any push. Both lists are capped at 8 patterns, the CodePipeline limit. Plan-only tests in `modules/<variant>/tests/trigger_file_paths.tftest.hcl` cover these cases with a mocked provider.
+
 ### CodeStar Connection First-Run Activation
 
 When `codestar_connection_arn = ""` (the default), the module creates a new `aws_codestarconnections_connection` resource. AWS provisions this in `PENDING` state — it cannot be used by the pipeline until a one-time **manual OAuth authorization** is completed in the AWS Console:
@@ -667,6 +675,8 @@ Core module variables include runtime Terraform `validation` blocks that fail at
 | `configs_repo_branch` | `length > 0` | Non-empty branch name |
 | `configs_repo_path` | Three validations | Must be `"."` or relative path; no `..`; no leading slash |
 | `configs_repo_codestar_connection_arn` | Empty or valid ARN regex | Same format as `codestar_connection_arn` |
+| `trigger_file_path_includes` | `length <= 8`, each 1–255 chars | CodePipeline `GitFilePathFilterCriteria` limits (variants only) |
+| `trigger_file_path_excludes` | `length <= 8`, each 1–255 chars | CodePipeline `GitFilePathFilterCriteria` limits (variants only) |
 
 ## Artifact Flow Detail
 

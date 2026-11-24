@@ -285,6 +285,42 @@ variable "configs_repo_codestar_connection_arn" {
 }
 
 # -----------------------------------------------------------------------------
+# Trigger File Path Filters (Optional)
+# -----------------------------------------------------------------------------
+
+variable "trigger_file_path_includes" {
+  description = "Glob patterns for files whose changes start the pipeline on push to github_branch. Empty (with trigger_file_path_excludes also empty) keeps default change detection. CodePipeline allows at most 8 patterns."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.trigger_file_path_includes) <= 8
+    error_message = "trigger_file_path_includes supports at most 8 patterns (CodePipeline limit)."
+  }
+
+  validation {
+    condition     = alltrue([for p in var.trigger_file_path_includes : length(p) >= 1 && length(p) <= 255])
+    error_message = "Each trigger_file_path_includes pattern must be 1-255 characters."
+  }
+}
+
+variable "trigger_file_path_excludes" {
+  description = "Glob patterns for files whose changes never start the pipeline. Excludes win over includes. When set without trigger_file_path_includes, includes default to [\"**\"]. CodePipeline allows at most 8 patterns."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.trigger_file_path_excludes) <= 8
+    error_message = "trigger_file_path_excludes supports at most 8 patterns (CodePipeline limit)."
+  }
+
+  validation {
+    condition     = alltrue([for p in var.trigger_file_path_excludes : length(p) >= 1 && length(p) <= 255])
+    error_message = "Each trigger_file_path_excludes pattern must be 1-255 characters."
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Variant-Specific Variables
 # -----------------------------------------------------------------------------
 

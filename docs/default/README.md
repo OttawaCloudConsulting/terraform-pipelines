@@ -96,6 +96,10 @@ my-terraform-project/
 
 All `cicd/` scripts and `environments/*.tfvars` files are optional. The pipeline gracefully skips missing files.
 
+## Trigger File Path Filters
+
+Optional. Set `trigger_file_path_includes` and/or `trigger_file_path_excludes` (glob patterns, max 8 each) to start the pipeline only when matching files change on `github_branch`. Leave both empty to keep the default of starting on every push. See the [main README](../../README.md#trigger-file-path-filters-optional-all-variants) for pattern rules.
+
 ## Configs Repo Support
 
 This variant supports an optional second source repository for `.tfvars` files. When `configs_repo` is set, plan actions source tfvars from the configs repo instead of the `environments/` directory above.
