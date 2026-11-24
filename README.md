@@ -171,7 +171,7 @@ How the patterns match ([CodePipeline glob syntax](https://docs.aws.amazon.com/c
 - `**` crosses directories, so `src/**` matches everything under `src/` at any depth.
 - Excludes win over includes. Each changed file is checked on its own, and the pipeline starts if any one file passes.
 
-Setting a filter adds an explicit V2 push trigger on the `GitHub` source action, filtered to `github_branch`. This replaces default change detection for that action. With a configs repo, a second branch-only trigger keeps any push to `configs_repo_branch` starting the pipeline; the file path filters apply to the IaC repo only. A pipeline started manually, or by "Release change", ignores the filters.
+Setting a filter adds an explicit V2 push trigger on the `GitHub` source action, filtered to `github_branch`. This replaces default change detection for that action. With a configs repo, a second branch-only trigger keeps any push to `configs_repo_branch` starting the pipeline; the file path filters apply to the IaC repo only. A pipeline started manually, or by "Release change", ignores the filters. The first push that creates `github_branch` may not start the pipeline even when it has matching files, because CodePipeline may not get the changed-file list for it ([trigger considerations](https://docs.aws.amazon.com/codepipeline/latest/userguide/pipelines-triggers.html#trigger-filter-considerations)).
 
 ### Variant-Specific (Default-DevDestroy)
 

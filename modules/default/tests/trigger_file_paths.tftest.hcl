@@ -125,6 +125,11 @@ run "configs_repo_keeps_branch_trigger" {
     condition     = aws_codepipeline.this.trigger[1].git_configuration[0].push[0].branches[0].includes == tolist(["release"])
     error_message = "Configs trigger must use configs_repo_branch."
   }
+
+  assert {
+    condition     = length(aws_codepipeline.this.trigger[1].git_configuration[0].push[0].file_paths) == 0
+    error_message = "File path filters must not apply to the configs repo trigger."
+  }
 }
 
 run "configs_repo_without_filters_renders_no_trigger" {
